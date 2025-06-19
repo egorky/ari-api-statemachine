@@ -110,7 +110,7 @@ async function doAriAction(actionName, fsmInstance, params = {}) {
     const channelData = activeChannels.get(fsmInstance.channelId);
     if (!channelData || !channelData.channel) throw new Error(`No active channel for ARI action ${actionName}.`);
     const { channel } = channelData;
-    console.log(\`ARI Action on \${channel.id}: \${actionName}, Params: \`, params);
+    console.log(`ARI Action on ${channel.id}: ${actionName}, Params: `, params);
 
     try {
         switch (actionName) {
