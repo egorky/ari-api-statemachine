@@ -13,13 +13,14 @@ This guide explains how to integrate the FSM system with an Asterisk PBX using t
 
 1.  **Environment Variables (\`.env\` file)**:
     Set the following variables in your project's \`.env\` file:
-    \`\`\`env
-    ASTERISK_ARI_URL=http://your_asterisk_ip:8088/ari  # URL to your Asterisk ARI interface
-    ASTERISK_ARI_USER=your_ari_user                   # ARI username
-    ASTERISK_ARI_PASSWORD=your_ari_password             # ARI password
-    ASTERISK_ARI_APP_NAME=fsm_ari_app                 # Name of the Stasis application to register with Asterisk
-    \`\`\`
-    The \`ASTERISK_ARI_APP_NAME\` is crucial as it's what you will use in your Asterisk dialplan.
+    ```env
+    DISABLE_ARI=false # Set to true to disable ARI connection
+    ASTERISK_URL=http://your_asterisk_ip:8088/ari  # URL to your Asterisk ARI interface
+    ASTERISK_USERNAME=your_ari_user                   # ARI username
+    ASTERISK_PASSWORD=your_ari_password             # ARI password
+    ASTERISK_APP_NAME=fsm_ari_app                 # Name of the Stasis application to register with Asterisk
+    ```
+    The `ASTERISK_APP_NAME` is crucial as it's what you will use in your Asterisk dialplan.
 
 ## Asterisk Dialplan Setup
 

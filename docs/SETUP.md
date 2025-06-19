@@ -29,10 +29,12 @@ DISABLE_WEB_UI=false                 # Set to true to disable the web interface
 WEB_PASSWORD=your_web_interface_password # Choose a strong password for web UI access
 SESSION_SECRET=a_very_long_and_random_string_for_session_encryption # For session security
 
-# Optional: Asterisk ARI Configuration (for later steps)
-# ASTERISK_ARI_URL=http://localhost:8088/ari
-# ASTERISK_ARI_USER=asterisk_user
-# ASTERISK_ARI_PASSWORD=asterisk_password
+# Asterisk ARI Configuration
+DISABLE_ARI=false # Set to true to disable ARI connection
+ASTERISK_URL=http://localhost:8088/ari
+ASTERISK_USERNAME=asterisk_user
+ASTERISK_PASSWORD=asterisk_password
+ASTERISK_APP_NAME=my-ari-app # Name for your Stasis application
 ```
     **Important:** Replace placeholder values with strong, unique secrets, especially for `API_TOKEN`, `WEB_PASSWORD`, and `SESSION_SECRET`.
 
