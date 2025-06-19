@@ -1,4 +1,7 @@
 // src/services/ariService.js
+const path = require('path'); // Required for path.resolve
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+
 const Ari = require('ari-client');
 const stateMachineManager = require('./stateMachineManager');
 
