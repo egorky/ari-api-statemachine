@@ -206,7 +206,7 @@ router.post("/fsm/:machineId/state", authenticateToken, async (req, res) => {
         if (typeof stateMachineManager !== 'undefined' && stateMachineManager.reloadMachineDefinition) {
              stateMachineManager.reloadMachineDefinition(machineId); // Update cache
         } else {
-             console.warn(stateMachineManager or reloadMachineDefinition not available in this context for immediate reload);
+             console.warn("stateMachineManager or reloadMachineDefinition not available in this context for immediate reload - check if this warning is still needed.");
         }
 
         res.json({ message: `State '${name}' added. Reload FSM or definition to see changes in some contexts.`, currentDefinition: definition });
@@ -246,7 +246,7 @@ router.post("/fsm/:machineId/transition_def", authenticateToken, async (req, res
         if (typeof stateMachineManager !== 'undefined' && stateMachineManager.reloadMachineDefinition) {
             stateMachineManager.reloadMachineDefinition(machineId);
         }  else {
-             console.warn(stateMachineManager or reloadMachineDefinition not available in this context for immediate reload);
+             console.warn("stateMachineManager or reloadMachineDefinition not available in this context for immediate reload - check if this warning is still needed.");
         }
         res.json({ message: `Transition '${name}' from '${from}' to '${to}' added.`, currentDefinition: definition });
 
@@ -281,7 +281,7 @@ router.post("/fsm/:machineId/initial", authenticateToken, async (req, res) => {
          if (typeof stateMachineManager !== 'undefined' && stateMachineManager.reloadMachineDefinition) {
             stateMachineManager.reloadMachineDefinition(machineId);
         }  else {
-             console.warn(stateMachineManager or reloadMachineDefinition not available in this context for immediate reload);
+             console.warn("stateMachineManager or reloadMachineDefinition not available in this context for immediate reload - check if this warning is still needed.");
         }
         res.json({ message: `Initial state set to '${initial}'.`, currentDefinition: definition });
 
