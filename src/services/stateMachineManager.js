@@ -65,18 +65,116 @@ function createStateMachineInstance(definition, machineId, initialStateData = {}
     const machineConfig = JSON.parse(JSON.stringify(definition));
     const { doAriAction } = ariOps; // Expect doAriAction to be passed in
 
+    // Helper to process actions (e.g., externalApi calls)
+    const processAction = async (action, fsm, lifecycle, eventPayload) => {
+        if (!action || !action.type) {
+            console.warn("Skipping action due to missing type:", action);
+            return;
+        }
+        if (action.type === 'externalApi') {
+            if (!action.request) {
+                console.error("External API action is missing 'request' configuration.");
+                return; // Or throw error
+            }
+            try {
+                const responseData = await makeExternalApiCall(action.request, fsm, eventPayload);
+                if (action.storeResponseAs) {
+                    fsm[action.storeResponseAs] = responseData;
+                    console.log(`Stored API response in fsm.${action.storeResponseAs}`);
+                }
+                if (action.onSuccess && fsm.can(action.onSuccess)) {
+                    console.log(`External API success, transitioning to ${action.onSuccess}`);
+                    // Use a microtask to avoid issues if the transition also has actions
+                    // that might interfere with the current execution context.
+                    Promise.resolve().then(() => fsm[action.onSuccess]({ apiResponse: responseData }));
+                }
+                return responseData;
+            } catch (error) {
+                console.error('External API action failed:', error.message);
+                if (action.onFailure && fsm.can(action.onFailure)) {
+                    console.log(`External API failure, transitioning to ${action.onFailure}`);
+                    Promise.resolve().then(() => fsm[action.onFailure]({ apiError: error.message }));
+                }
+                // Decide if this error should halt further execution or be re-thrown
+                // For now, let's re-throw to make it visible to the FSM's error handling if any
+                throw error;
+            }
+        }
+        // Add other action types here if any (e.g., type: "log", type: "emitEvent")
+    };
+
+    machineConfig.methods = machineConfig.methods || {};
+
+    // Wrap transition lifecycle methods (on<TransitionName>)
+    if (machineConfig.transitions && Array.isArray(machineConfig.transitions)) {
+        machineConfig.transitions.forEach(transition => {
+            const originalMethodName = "on" + transition.name.charAt(0).toUpperCase() + transition.name.slice(1);
+            const originalMethod = machineConfig.methods[originalMethodName]; // Could be string or already a function
+
+            if (transition.action || (transition.actions && Array.isArray(transition.actions))) {
+                machineConfig.methods[originalMethodName] = async function(lifecycle, eventPayload) { // `this` is the fsm
+                    const actions = transition.actions || [transition.action];
+                    for (const action of actions) {
+                        await processAction(action, this, lifecycle, eventPayload);
+                    }
+                    // Execute original string-defined method if it exists
+                    if (typeof originalMethod === 'string') {
+                        const func = new Function("lifecycle", "eventPayload", "fsm", "makeExternalApiCall", "axios", "doAriAction", "return (" + originalMethod + ").apply(fsm, arguments);");
+                        return await func.call(this, lifecycle, eventPayload, this, makeExternalApiCall, axios, this.doAriAction);
+                    } else if (typeof originalMethod === 'function') {
+                        // If originalMethod was already a function (e.g. from a previous wrapping or direct definition)
+                        return await originalMethod.apply(this, arguments);
+                    }
+                };
+            } else if (typeof originalMethod === 'string') {
+                // Ensure even non-action methods get the proper scope if they are strings
+                 machineConfig.methods[originalMethodName] = new Function("lifecycle", "eventPayload", "fsm", "makeExternalApiCall", "axios", "doAriAction", "return (" + originalMethod + ").apply(fsm, arguments);");
+            }
+        });
+    }
+
+    // Wrap state lifecycle methods (onEntry, onExit) - JSM uses onEnter<State>/onLeave<State>
+    if (machineConfig.states) {
+        for (const stateName in machineConfig.states) {
+            const stateConfig = machineConfig.states[stateName];
+            ['onEntry', 'onExit'].forEach(hookType => {
+                const jsmHookName = (hookType === 'onEntry' ? 'onEnter' : 'onLeave') + stateName.charAt(0).toUpperCase() + stateName.slice(1);
+                const originalMethod = machineConfig.methods[jsmHookName]; // Could be string or already a function
+
+                if (stateConfig[hookType] && (typeof stateConfig[hookType] === 'object' || (Array.isArray(stateConfig[hookType]) && stateConfig[hookType].length > 0))) {
+                    const actions = Array.isArray(stateConfig[hookType]) ? stateConfig[hookType] : [stateConfig[hookType]];
+
+                    machineConfig.methods[jsmHookName] = async function(lifecycle, eventPayload) { // `this` is the fsm
+                        for (const action of actions) {
+                            await processAction(action, this, lifecycle, eventPayload);
+                        }
+                        // After actions, call original method if it existed as a string
+                        if (typeof originalMethod === 'string') {
+                             const func = new Function("lifecycle", "eventPayload", "fsm", "makeExternalApiCall", "axios", "doAriAction", "return (" + originalMethod + ").apply(fsm, arguments);");
+                             return await func.call(this, lifecycle, eventPayload, this, makeExternalApiCall, axios, this.doAriAction);
+                        } else if (typeof originalMethod === 'function') {
+                            return await originalMethod.apply(this, arguments);
+                        }
+                    };
+                    // Remove the action array from stateConfig as it's now part of methods
+                    delete stateConfig[hookType];
+                } else if (typeof originalMethod === 'string') {
+                    // Ensure even non-action methods get the proper scope if they are strings
+                    machineConfig.methods[jsmHookName] = new Function("lifecycle", "eventPayload", "fsm", "makeExternalApiCall", "axios", "doAriAction", "return (" + originalMethod + ").apply(fsm, arguments);");
+                }
+            });
+        }
+    }
+
+    // Ensure all other string-defined methods also get the proper scope
+    // This loop is now partly redundant due to above specific wrappings but acts as a catch-all.
     if (machineConfig.methods) {
         for (const methodName in machineConfig.methods) {
-            if (typeof machineConfig.methods[methodName] === "string") {
-                try {
-                    // Inject makeExternalApiCall, axios, and doAriAction
-                    // IMPORTANT: Dynamically creating functions from strings using new Function().
-                    // This is powerful for defining FSM methods in JSON but carries security implications
-                    // if the JSON source is not trusted. Ensure FSM definitions are from secure sources.
-                    // Injected arguments: lifecycle, eventPayload, fsm instance, makeExternalApiCall helper, axios instance, doAriAction helper.
+            if (typeof machineConfig.methods[methodName] === 'string' && !methodName.match(/^(onEnter|onLeave|on)/)) { // Avoid re-wrapping already processed/typed methods
+                 try {
                     machineConfig.methods[methodName] = new Function("lifecycle", "eventPayload", "fsm", "makeExternalApiCall", "axios", "doAriAction", "return (" + machineConfig.methods[methodName] + ").apply(fsm, arguments);");
                 } catch (e) {
-                    console.error(`Error parsing method ${methodName} for FSM ${machineId}: ${e}`);
+                    console.error(`Error parsing general method ${methodName} for FSM ${machineId}: ${e}`);
                 }
             }
         }
@@ -84,58 +182,100 @@ function createStateMachineInstance(definition, machineId, initialStateData = {}
 
     const fsm = new StateMachine({
       ...machineConfig,
-      data: initialStateData, // JSM specific way to add custom data
+      data: initialStateData,
       observeUnchangedState: true
     });
 
-    if (machineConfig.externalApis) {
+    if (machineConfig.externalApis) { // Ensure externalApis is still passed if defined at top level
         fsm.externalApis = machineConfig.externalApis;
     }
-    if (machineConfig.ariActions) { // For FSMs to define what ARI actions they might use
+    if (machineConfig.ariActions) {
         fsm.ariActions = machineConfig.ariActions;
     }
     fsm.id = definition.id;
-    // Make doAriAction available within the FSM instance if needed directly
     if (doAriAction) fsm.doAriAction = doAriAction;
 
-    Object.assign(fsm, initialStateData); // Mix in initial data (like channelId)
+    Object.assign(fsm, initialStateData);
     return fsm;
 }
-async function makeExternalApiCall(apiCallName, fsmInstance, eventPayload) {
-    const apiConfig = fsmInstance.externalApis && fsmInstance.externalApis[apiCallName];
-    if (!apiConfig) {
-        console.error(`API call configuration "${apiCallName}" not found in FSM "${fsmInstance.id}".`);
-        throw new Error(`API call configuration "${apiCallName}" not found.`);
+
+// Modified makeExternalApiCall
+async function makeExternalApiCall(callConfig, fsmInstance, eventPayload) {
+    let apiConfig;
+    let callName = 'inline_action'; // Default for logging direct requests
+
+    if (typeof callConfig === 'string') { // It's a named call
+        callName = callConfig;
+        apiConfig = fsmInstance.externalApis && fsmInstance.externalApis[callName];
+        if (!apiConfig) {
+            console.error(`API call configuration "${callName}" not found in FSM "${fsmInstance.id}".`);
+            throw new Error(`API call configuration "${callName}" not found.`);
+        }
+    } else if (typeof callConfig === 'object' && callConfig.url) { // It's a direct request object
+        apiConfig = callConfig;
+    } else {
+        throw new Error('Invalid configuration for makeExternalApiCall. Must be a name or a request object.');
     }
+
     let url = apiConfig.url;
-    let data = apiConfig.body;
+    let data = apiConfig.body; // Can be object or string
     let headers = apiConfig.headers || {};
-    const replacePlaceholders = (templateString) => {
-        if (typeof templateString !== "string") return templateString;
-        return templateString.replace(/\{\{(fsm|payload)\.(.+?)\}\}/g, (match, source, key) => {
-            if (source === "fsm") return fsmInstance[key] !== undefined ? fsmInstance[key] : match;
-            if (source === "payload") return eventPayload && eventPayload[key] !== undefined ? eventPayload[key] : match;
+
+    const replacePlaceholders = (templateValue) => {
+        if (typeof templateValue !== 'string') return templateValue;
+        // Enhanced placeholder replacement
+        return templateValue.replace(/\{\{(fsm|payload|eventPayload)\.([^}]+)\}\}/g, (match, source, key) => {
+            let sourceObject;
+            if (source === "fsm") sourceObject = fsmInstance;
+            else if (source === "payload" || source === "eventPayload") sourceObject = eventPayload;
+
+            if (sourceObject) {
+                // Basic key access; for nested properties, a more robust resolver might be needed
+                // e.g., key.split('.').reduce((o,i)=> o && typeof o === 'object' && o[i] !== undefined ? o[i] : match, sourceObject);
+                // For now, assume direct keys on fsmInstance or eventPayload
+                const keys = key.split('.');
+                let value = sourceObject;
+                for (const k of keys) {
+                    if (value && typeof value === 'object' && k in value) {
+                        value = value[k];
+                    } else {
+                        return match; // Key path not found, return original placeholder
+                    }
+                }
+                return value !== undefined ? value : match;
+            }
             return match;
         });
     };
-    if (typeof url === "string") url = replacePlaceholders(url);
-    if (typeof data === "object" && data !== null) data = JSON.parse(replacePlaceholders(JSON.stringify(data)));
-    else if (typeof data === "string") data = replacePlaceholders(data);
 
-    console.log(`Making external API call "${apiCallName}": ${apiConfig.method} ${url}`);
+    url = replacePlaceholders(url);
+    if (typeof data === 'string') {
+        data = replacePlaceholders(data);
+    } else if (typeof data === 'object' && data !== null) {
+        // Recursively replace placeholders in object values
+        // A simple JSON.stringify/parse approach for deep replacement in objects:
+        data = JSON.parse(replacePlaceholders(JSON.stringify(data)));
+    }
+
+    // Placeholder replacement for headers
+    const processedHeaders = {};
+    for (const hKey in headers) {
+        processedHeaders[hKey] = replacePlaceholders(headers[hKey]);
+    }
+    headers = processedHeaders;
+
+    console.log(`Making external API call "${callName}": ${apiConfig.method || 'GET'} ${url}`);
     try {
         const response = await axios({
             method: apiConfig.method || "GET", url: url, data: data, headers: headers,
             timeout: apiConfig.timeout || 5000
         });
-        console.log(`External API call "${apiCallName}" successful. Status: ${response.status}`);
+        console.log(`External API call "${callName}" successful. Status: ${response.status}`);
         return response.data;
     } catch (error) {
-        console.error(`External API call "${apiCallName}" failed: ${error.message}`);
-        if (error.response) {
-            console.error("Error response data:", error.response.data);
-        }
-        throw new Error(`External API call ${apiCallName} failed: ${error.message}`);
+        console.error(`External API call "${callName}" failed: ${error.message}`);
+        if (error.response) { console.error("Error response data:", error.response.data); }
+        throw new Error(`External API call ${callName} failed: ${error.message}`);
     }
 }
 

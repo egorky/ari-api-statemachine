@@ -1,0 +1,458 @@
+<%- include("partials/header", { title: "Edit FSM Graphically: " + fsmId }) %>
+<%- include("partials/navigation", { user: user, messages: messages, csrfToken: csrfToken }) %>
+
+<h1>Edit State Machine Graphically: <%= fsmId %></h1>
+
+<div class="editor-container">
+    <div class="graph-container">
+        <h2>Graph Visualization</h2>
+        <div id="graph" style="width: 100%; min-height: 400px; border: 1px solid #ccc;">
+            <!-- Graph will be rendered here by d3-graphviz -->
+        </div>
+        <p>Zoom and pan should be enabled by default.</p>
+        <button id="reloadGraphButton">Reload Graph</button>
+    </div>
+
+    <div class="forms-container">
+        <h2>Graphical Editor</h2>
+        <div style="margin-bottom: 10px;">
+            <button id="addStateButton">Add State Node</button>
+            <button id="setInitialStateButton">Set Selected as Initial</button>
+        </div>
+        <div id="drawflow-editor" style="width: 100%; height: 600px; border: 1px solid #ccc; margin-bottom: 20px;"></div>
+        <button id="saveGraphicalDefinitionButton">Save Graphical Definition</button>
+
+        <div class="form-section" style="margin-top: 20px;">
+            <h3>Raw JSON Definition</h3>
+            <textarea id="fsmJsonDefinition" rows="10" style="width: 100%; font-family: monospace;" readonly></textarea>
+        </div>
+    </div>
+</div>
+
+<script src="https://d3js.org/d3.v5.min.js"></script>
+<script src="https://unpkg.com/@hpcc-js/wasm@0.3.11/dist/index.min.js"></script>
+<script src="https://unpkg.com/d3-graphviz@3.0.5/build/d3-graphviz.js"></script>
+<link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow/dist/drawflow.min.css">
+<script src="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow/dist/drawflow.min.js"></script>
+
+
+<script>
+    const fsmId = "<%= fsmId %>";
+    const csrfToken = "<%= csrfToken %>";
+    const API_TOKEN = "<%= locals.apiTokenForClient %>";
+    let currentFsmDefinition = {}; // This will hold the FSM definition, possibly updated by Drawflow
+    let initialFsmStateNodeId = null;
+    let loadedFsmTransitions = []; // To store transitions from the loaded FSM
+
+    const editorContainer = document.getElementById('drawflow-editor');
+    const editor = new Drawflow(editorContainer);
+    editor.reroute = true; // Enable connection rerouting
+    editor.start();
+
+    // Example: Add a way to create a new state node
+    // This is a simplified way; a proper UI element (button/menu) would be better.
+    // editor.addNode('state', 1, 1, 100, 50, 'state-node', { name: 'NewState' }, 'State Node'); // Removed for blank canvas start
+    // For testing, let's add it without specific content to see it appear
+    // editor.addNode('State Name', 1, 1, 50, 50, 'state-node', { name: 'DefaultState' }, '<h3>State</h3><span>DefaultState</span>');
+
+    // Helper function to create HTML content for a state node
+    function createStateNodeHTML(nodeName) {
+        return `<div>${nodeName}</div>`;
+    }
+
+    // Modify how nodes are added (example, replace the existing addNode line)
+    // This is a placeholder for a user-triggered action (e.g., button click)
+    let defaultNodeCounter = 1;
+    function addStateNodeToEditor(name = `State${defaultNodeCounter++}`, posX = 100, posY = 100) {
+        const nodeName = name;
+        const htmlContent = createStateNodeHTML(nodeName);
+        // inputs: 1, outputs: 1 (generic connection points for now)
+        editor.addNode('state', 1, 1, posX, posY, 'state-node', { name: nodeName }, htmlContent);
+    }
+    // Call it once for an initial example or have a button trigger it.
+    // addStateNodeToEditor(); // User will use button
+
+    // --- Event listener for editing node name on double-click ---
+    editor.on('nodeSelected', function(id) {
+        const node = editor.getNodeFromId(id);
+        // If you want to make it editable only after selection, then dblclick
+    });
+
+    editor.on('dblclick', function(event) {
+        // Check if the double click was on a node's content
+        const target = event.target.closest('.drawflow-node .drawflow_content_node div');
+        if (target && target.closest('.drawflow-node')) { // Ensure target and its parent node exist
+            const nodeId = target.closest('.drawflow-node').id.substring(5); // e.g., "node-1" -> "1"
+            const node = editor.getNodeFromId(nodeId);
+            if (!node || !node.data) return; // Node or its data might not exist
+            const currentName = node.data.name;
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentName;
+            input.style.width = '100%'; // Ensure it fits
+            input.onclick = function(e) { e.stopPropagation(); }; // Prevent Drawflow click
+            input.onblur = function() {
+                const newName = input.value.trim();
+                if (newName && newName !== currentName) {
+                    editor.updateNodeDataFromId(nodeId, { name: newName });
+                    target.textContent = newName; // Update displayed name
+                } else {
+                    target.textContent = currentName; // Revert if empty or unchanged
+                }
+            };
+            input.onkeydown = function(e) {
+                if (e.key === 'Enter') input.blur();
+                if (e.key === 'Escape') {
+                    target.textContent = currentName; // Revert
+                    input.blur(); // then remove
+                }
+                e.stopPropagation(); // Prevent Drawflow key events
+            };
+
+            target.textContent = ''; // Clear current name
+            target.appendChild(input);
+            input.focus();
+            input.select();
+        }
+    });
+
+    function displayFlashMessage(type, message) {
+        const existingMessages = document.querySelectorAll(".flash-message");
+        existingMessages.forEach(msg => msg.remove());
+        const nav = document.querySelector("nav");
+        const p = document.createElement("p");
+        p.className = type + " flash-message";
+        p.textContent = message;
+        nav.insertAdjacentElement("afterend", p);
+        setTimeout(() => p.remove(), 5000);
+    }
+
+    async function fetchDotString() {
+        const response = await fetch(`/api/fsm/${fsmId}/dot`, {
+            headers: { "Authorization": "Bearer " + API_TOKEN }
+        });
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Failed to fetch .dot string: ${response.status}`);
+        }
+        return await response.text();
+    }
+
+    async function fetchFullFsmDefinition() {
+        const response = await fetch(`/api/fsm/${fsmId}/definition`, {
+            headers: { "Authorization": "Bearer " + API_TOKEN }
+        });
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Failed to fetch FSM definition: ${response.status}`);
+        }
+        currentFsmDefinition = await response.json();
+        document.getElementById("fsmJsonDefinition").value = JSON.stringify(currentFsmDefinition, null, 2);
+        // TODO: Initialize Drawflow with this definition
+        // initializeDrawflow(currentFsmDefinition);
+    }
+
+    async function renderGraph() {
+        try {
+            const dotString = await fetchDotString();
+            d3.select("#graph").graphviz({ useWorker: false })
+                .renderDot(dotString)
+                .on("end", function () {
+                    console.log("Graph rendered for visualization.");
+                });
+        } catch (error) {
+            console.error("Error rendering graph:", error);
+            displayFlashMessage("error", "Could not render graph: " + error.message);
+            d3.select("#graph").html(`<p style='color:red;'>Error rendering graph: ${error.message}</p>`);
+        }
+    }
+
+    async function loadInitialData() {
+        try {
+            editor.clearModuleView('Home'); // Clear editor at the start
+            initialFsmStateNodeId = null;
+            loadedFsmTransitions = []; // Reset this too
+            document.querySelectorAll('.drawflow-node.initial-state-node').forEach(n => n.classList.remove('initial-state-node'));
+
+            await fetchFullFsmDefinition(); // Fetches JSON into currentFsmDefinition, populates raw JSON textarea
+
+            // Now load this definition into Drawflow
+            if (currentFsmDefinition && Object.keys(currentFsmDefinition).length > 0) {
+                loadFsmIntoDrawflow(currentFsmDefinition); // This function will be defined next
+            } else {
+                console.log("No FSM definition to load into Drawflow, or definition is empty.");
+                // Editor is already clear, user starts with a blank canvas.
+            }
+
+            await renderGraph(); // Renders d3-graphviz graph from DOT (still useful for comparison)
+        } catch (error) {
+            console.error("Error loading initial data for Drawflow or d3-graphviz:", error);
+            displayFlashMessage("error", "Failed to load FSM data: " + error.message);
+            // If Drawflow loading fails, ensure it's cleared or in a usable state
+            editor.clearModuleView('Home'); // Clear again on error
+            initialFsmStateNodeId = null;
+            document.querySelectorAll('.drawflow-node.initial-state-node').forEach(n => n.classList.remove('initial-state-node'));
+        }
+    }
+
+    function loadFsmIntoDrawflow(fsmDefinition) {
+       if (!fsmDefinition || !editor) return;
+       editor.clearModuleView('Home'); // Clear again just in case
+       initialFsmStateNodeId = null; // Reset, as visual markers are also cleared or reapplied
+
+       if (fsmDefinition && fsmDefinition.transitions && Array.isArray(fsmDefinition.transitions)) {
+           loadedFsmTransitions = JSON.parse(JSON.stringify(fsmDefinition.transitions)); // Store a deep copy
+       } else {
+           loadedFsmTransitions = [];
+       }
+
+       const stateToNodeIdMap = {};
+       let currentX = 50;
+       let currentY = 50;
+       const xIncrement = 250; // Horizontal spacing
+       const yIncrement = 150; // Vertical spacing
+       const nodesPerRow = 4;
+       let nodesInCurrentRow = 0;
+
+       // Add States (Nodes)
+       // Iterate over definition.states if it's an object of objects, or an array
+       const states = fsmDefinition.states; // Assuming states is an object { "stateName": { ...details... } }
+                                          // Or if it's an array of strings/objects from older defs.
+
+       let stateNames = [];
+       if (Array.isArray(states)) { // Handle array of state objects/names
+            stateNames = states.map(s => (typeof s === 'string' ? s : s.name)).filter(Boolean);
+       } else if (typeof states === 'object' && states !== null) { // Handle object of state objects
+            stateNames = Object.keys(states);
+       }
+
+
+       stateNames.forEach(stateName => {
+           const nodeHTML = createStateNodeHTML(stateName); // Uses existing helper
+           // For now, using fixed input/output counts (1,1)
+           const nodeId = editor.addNode('state', 1, 1, currentX, currentY, 'state-node', { name: stateName }, nodeHTML);
+           stateToNodeIdMap[stateName] = nodeId.toString(); // Ensure nodeId is string for map key
+
+           nodesInCurrentRow++;
+           if (nodesInCurrentRow >= nodesPerRow) {
+               currentX = 50;
+               currentY += yIncrement;
+               nodesInCurrentRow = 0;
+           } else {
+               currentX += xIncrement;
+           }
+       });
+
+       // Set Initial State Indication
+       if (fsmDefinition.initial && stateToNodeIdMap[fsmDefinition.initial]) {
+           initialFsmStateNodeId = stateToNodeIdMap[fsmDefinition.initial];
+           const initialNodeElement = document.querySelector(`#node-${initialFsmStateNodeId}`);
+           if (initialNodeElement) {
+               initialNodeElement.classList.add('initial-state-node');
+           }
+           // Ensure the initialFsmStateNodeId is set for the save logic
+           console.log(`Initial state "${fsmDefinition.initial}" (Node ID: ${initialFsmStateNodeId}) loaded into Drawflow.`);
+       } else if (stateNames.length > 0) { // Only warn if states were actually loaded but initial is missing/mismatched
+           console.warn(`FSM definition has an initial state specified ("${fsmDefinition.initial}"), but it was not found among the loaded states, or no initial state defined.`);
+       }
+
+
+       // Add Transitions (Connections)
+       if (fsmDefinition.transitions && Array.isArray(fsmDefinition.transitions)) {
+           fsmDefinition.transitions.forEach(transition => {
+               const fromNodeId = stateToNodeIdMap[transition.from];
+               const toNodeId = stateToNodeIdMap[transition.to];
+
+               if (fromNodeId && toNodeId) {
+                   // Using default output/input port names ('output_1', 'input_1')
+                   // Drawflow automatically assigns unique IDs to connections.
+                   // Transition names from the definition are not directly represented on connections yet.
+                   editor.addConnection(fromNodeId, toNodeId, 'output_1', 'input_1');
+               } else {
+                   console.warn(`Could not create transition: ${transition.name}. Missing 'from' (${transition.from}) or 'to' (${transition.to}) node in Drawflow map.`);
+               }
+           });
+       }
+       console.log("FSM loaded into Drawflow editor.");
+    }
+
+    // Placeholder for Drawflow initialization logic
+    // function initializeDrawflow(fsmData) {
+    //     const editor = new Drawflow(document.getElementById('drawflow-editor'));
+    //     editor.start();
+    //     // Convert fsmData to Drawflow format and import it
+    //     // editor.import({ "drawflow": { ... converted data ... } });
+    //     console.log("Drawflow editor initialized (placeholder). FSM Data:", fsmData);
+    // }
+
+    document.getElementById("reloadGraphButton").addEventListener("click", async () => {
+        displayFlashMessage("success", "Reloading data and graph...");
+        await loadInitialData(); // Will also re-fetch FSM definition
+    });
+
+    // Initial load
+    loadInitialData();
+
+    document.getElementById("addStateButton").addEventListener("click", () => {
+        addStateNodeToEditor(); // Uses the function defined earlier
+    });
+
+    document.getElementById("setInitialStateButton").addEventListener("click", () => {
+       const selectedNodeId = editor.selected_node;
+       if (selectedNodeId) {
+           if (initialFsmStateNodeId) {
+               const oldInitialNodeElement = document.querySelector(`#node-${initialFsmStateNodeId}`);
+               if (oldInitialNodeElement) oldInitialNodeElement.classList.remove('initial-state-node');
+           }
+           initialFsmStateNodeId = selectedNodeId;
+           const newInitialNodeElement = document.querySelector(`#node-${initialFsmStateNodeId}`);
+           if (newInitialNodeElement) newInitialNodeElement.classList.add('initial-state-node');
+
+           const nodeName = editor.getNodeFromId(selectedNodeId).data.name || `Node ${selectedNodeId}`;
+           displayFlashMessage("success", `Node '${nodeName}' set as initial state.`);
+       } else {
+           displayFlashMessage("error", "No node selected to set as initial state.");
+       }
+    });
+
+    document.getElementById("saveGraphicalDefinitionButton").addEventListener("click", async () => {
+       const drawflowData = editor.export();
+       const fsmJson = {
+           id: fsmId,
+           initial: "",
+           // transitions: [], // Will be rebuilt by new logic
+           states: {}
+       };
+       const nodes = drawflowData.drawflow.Home.data;
+
+       if (initialFsmStateNodeId && nodes[initialFsmStateNodeId] && nodes[initialFsmStateNodeId].data.name) {
+           fsmJson.initial = nodes[initialFsmStateNodeId].data.name;
+       } else if (Object.keys(nodes).length > 0) {
+           displayFlashMessage("error", "Initial state not explicitly set or the initial state node is missing a name. Please select a node, ensure it has a name, and click 'Set Selected as Initial'.");
+           return;
+       } else {
+           displayFlashMessage("info", "Nothing to save. Editor is empty.");
+           return;
+       }
+
+       // Process states first
+       for (const nodeId in nodes) {
+           const node = nodes[nodeId];
+           const stateName = node.data.name || `State_${nodeId}`;
+           if (!node.data.name) {
+               console.warn(`Node ${nodeId} is missing a name. Using generated name: ${stateName}`);
+           }
+           fsmJson.states[stateName] = { /* any future state-specific properties */ };
+       }
+
+       // Process transitions with preservation logic
+       fsmJson.transitions = []; // Start with an empty array
+       const newTransitionsFromGraph = []; // Temporary array for transitions derived from Drawflow
+
+       for (const nodeId in nodes) {
+           const node = nodes[nodeId];
+           const stateName = node.data.name || `State_${nodeId}`; // Should have name from above pass or dblclick edit
+
+           for (const outputKey in node.outputs) {
+               const connections = node.outputs[outputKey].connections;
+               connections.forEach(conn => {
+                   const targetNodeId = conn.node;
+                   const targetNode = nodes[targetNodeId];
+                   if (!targetNode || !targetNode.data) {
+                       console.warn(`Skipping connection from ${stateName} to non-existent/invalid target node ID ${targetNodeId}`);
+                       return;
+                   }
+                   const targetStateName = targetNode.data.name || `State_${targetNodeId}`;
+
+                   // Try to find this connection in the original loaded transitions
+                   let foundOriginalTransition = null;
+                   // Create a mutable copy of loadedFsmTransitions for splicing if needed for complex matching,
+                   // but for simple findIndex and splice, it's okay on the original if we are careful.
+                   // For this logic, we use splice which modifies loadedFsmTransitions.
+                   if (loadedFsmTransitions.length > 0) {
+                       const originalMatchIndex = loadedFsmTransitions.findIndex(t => t.from === stateName && t.to === targetStateName);
+                       if (originalMatchIndex !== -1) {
+                           foundOriginalTransition = loadedFsmTransitions.splice(originalMatchIndex, 1)[0]; // Remove to mark as used
+                       }
+                   }
+
+                   if (foundOriginalTransition) {
+                       newTransitionsFromGraph.push(foundOriginalTransition);
+                   } else {
+                       let newTransitionName = `from_${stateName}_to_${targetStateName}`;
+                       if (connections.length > 1 || Object.keys(node.outputs).length > 1) {
+                           newTransitionName += `_via_${outputKey.replace('output_','')}`;
+                       }
+                       let nameCounter = 1;
+                       let finalNewTransitionName = newTransitionName;
+                       while (newTransitionsFromGraph.some(t => t.name === finalNewTransitionName) ||
+                              loadedFsmTransitions.some(t => t.name === finalNewTransitionName)) { // check remaining unused originals too
+                            finalNewTransitionName = `${newTransitionName}_${nameCounter++}`;
+                       }
+
+                       newTransitionsFromGraph.push({
+                           name: finalNewTransitionName,
+                           from: stateName,
+                           to: targetStateName
+                           // Add other default properties for new transitions if any
+                       });
+                   }
+               });
+           }
+       }
+       fsmJson.transitions = newTransitionsFromGraph;
+
+       // The check for initial state being set if states exist is already done above.
+       // if (!fsmJson.initial && Object.keys(fsmJson.states).length > 0) { ... }
+
+       console.log("Converted FSM JSON with transition preservation:", fsmJson);
+
+       try {
+           const response = await fetch(`/api/fsm/${fsmId}/save_graphical_definition`, {
+               method: "POST",
+               headers: {
+                   "Content-Type": "application/json",
+                   "X-CSRF-Token": csrfToken,
+                   "Authorization": "Bearer " + API_TOKEN
+               },
+               body: JSON.stringify(fsmJson)
+           });
+           const result = await response.json();
+           if (!response.ok) {
+               throw new Error(result.error || "Failed to save FSM definition.");
+           }
+           displayFlashMessage("success", result.message || "FSM saved successfully. Reload graph to see changes.");
+           document.getElementById("fsmJsonDefinition").value = JSON.stringify(fsmJson, null, 2);
+           await renderGraph();
+       } catch (error) {
+           console.error("Error saving FSM from graphical editor:", error);
+           displayFlashMessage("error", `Save failed: ${error.message}`);
+       }
+    });
+</script>
+<style>
+    .editor-container { display: flex; gap: 20px; }
+    .graph-container { flex: 1; } /* Visualization part */
+    .forms-container { flex: 2; } /* Editor part */
+    .form-section { background-color: #f9f9f9; padding: 15px; margin-bottom: 15px; border-radius: 4px; border: 1px solid #eee; }
+    .form-section h3 { margin-top: 0; }
+    /* Minimal Drawflow styling if needed, though library usually handles its own */
+    #drawflow-editor .drawflow-node { /* Example */ }
+
+    /* Basic Node Styling for Drawflow */
+    .drawflow-node.state-node .drawflow_content_node {
+        background: #f0f8ff; /* AliceBlue */
+        padding: 10px;
+        border-radius: 5px;
+    }
+     .drawflow-node.state-node .drawflow_content_node input { /* Style for input field */
+        box-sizing: border-box; /* Ensures padding and border don't increase size */
+    }
+    .drawflow-node.initial-state-node {
+        border: 2px solid #28a745 !important; /* Green border - !important to override default */
+        box-shadow: 0 0 10px #28a745;
+    }
+    /* Add more styling as needed */
+</style>
+<%- include("partials/footer") %>
