@@ -1,0 +1,35 @@
+{
+  "id": "ari_example_fsm",
+  "initial": "init",
+  "ariActions": { "playWelcome": { "sound": "tt-monkeys" }, "playDigitSound": { "sound": "digits/1" } },
+  "transitions": [
+    { "name": "ariCallStart", "from": "init", "to": "waitForGreeting" },
+    { "name": "greetingPlayed", "from": "waitForGreeting", "to": "menu" },
+    { "name": "dtmf_1", "from": "menu", "to": "handleOption1" },
+    { "name": "dtmf_hangup", "from": "*", "to": "finished" },
+    { "name": "hangupCall", "from": "*", "to": "finished" }
+  ],
+  "methods": {
+    "onEnterWaitForGreeting": "async function(lifecycle, payload, fsm, makeExternalApiCall, axios, doAriAction) {
+        console.log(\"ARI FSM: Entered waitForGreeting for channel \" + fsm.channelId + \". Playing welcome sound.\");
+        try {
+            await doAriAction(\"playSound\", fsm, { media: \"sound:hello-world\" });
+            fsm.greetingPlayed();
+        } catch (err) { console.error(\"ARI FSM: Error playing sound:\", err); fsm.hangupCall(); }
+    }",
+    "onEnterMenu": "function() { console.log(\"ARI FSM: Entered menu. Waiting for DTMF (e.g., 1).\"); }",
+    "onEnterHandleOption1": "async function(lifecycle, payload, fsm, makeExternalApiCall, axios, doAriAction) {
+        console.log(\"ARI FSM: Handling DTMF option 1.\");
+        try {
+            await doAriAction(\"playSound\", fsm, { sound: \"digits/1\" });
+            await new Promise(resolve => setTimeout(resolve, 500));
+            fsm.hangupCall();
+        } catch (err) { console.error(\"ARI FSM: Error in handleOption1:\", err); fsm.hangupCall(); }
+    }",
+    "onBeforeHangupCall": "async function(lifecycle, payload, fsm, makeExternalApiCall, axios, doAriAction) {
+        console.log(\"ARI FSM: Hanging up call on channel \" + fsm.channelId);
+        try { await doAriAction(\"hangup\", fsm); } catch (err) { console.error(\"ARI FSM: Error during hangup:\", err); }
+    }",
+    "onEnterFinished": "function() { console.log(\"ARI FSM: Call finished.\"); }"
+  }
+}

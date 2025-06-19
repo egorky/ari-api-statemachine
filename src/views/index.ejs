@@ -1,0 +1,8 @@
+<%- include("partials/header", { title: "Home" }) %>
+<%- include("partials/navigation", { user: user, messages: messages, csrfToken: csrfToken }) %>
+<h1>Welcome to the FSM Management System</h1>
+<p>Use this system to manage your Finite State Machine definitions.</p>
+<% if (!user) { %>
+<p><a href="/login">Login</a> to access the dashboard.</p>
+<% } %>
+<%- include("partials/footer") %>

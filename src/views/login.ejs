@@ -1,0 +1,12 @@
+<%- include("partials/header", { title: "Login" }) %>
+<%- include("partials/navigation", { user: user, messages: messages, csrfToken: csrfToken }) %>
+<h1>Login</h1>
+<form action="/login" method="POST" class="login-form">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <div class="form-group">
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" required>
+    </div>
+    <button type="submit">Login</button>
+</form>
+<%- include("partials/footer") %>
