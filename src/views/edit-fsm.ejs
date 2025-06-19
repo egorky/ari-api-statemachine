@@ -1,0 +1,303 @@
+<%- include("partials/header", { title: "Edit FSM: " + fsmId }) %>
+<%- include("partials/navigation", { user: user, messages: messages, csrfToken: csrfToken }) %>
+
+<h1>Edit State Machine: <%= fsmId %></h1>
+
+<div class="editor-container">
+    <div class="graph-container">
+        <h2>Graph Visualization</h2>
+        <div id="graph" style="width: 100%; min-height: 400px; border: 1px solid #ccc;">
+            <!-- Graph will be rendered here by d3-graphviz -->
+        </div>
+        <p>Zoom and pan should be enabled by default.</p>
+    </div>
+
+    <div class="forms-container">
+        <h2>Modify FSM</h2>
+
+        <div class="form-section">
+            <h3>Add New State</h3>
+            <form id="addStateForm">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <div class="form-group">
+                    <label for="newStateName">State Name:</label>
+                    <input type="text" id="newStateName" name="newStateName" required>
+                </div>
+                <button type="submit">Add State</button>
+            </form>
+        </div>
+
+        <div class="form-section">
+            <h3>Add New Transition</h3>
+            <form id="addTransitionForm">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <div class="form-group">
+                    <label for="transitionName">Transition Name (e.g., "next", "error"):</label>
+                    <input type="text" id="transitionName" name="transitionName" required>
+                </div>
+                <div class="form-group">
+                    <label for="fromState">From State:</label>
+                    <select id="fromState" name="fromState" required>
+                        <%# Will be populated by JavaScript %>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="toState">To State:</label>
+                    <select id="toState" name="toState" required>
+                        <%# Will be populated by JavaScript %>
+                    </select>
+                </div>
+                <button type="submit">Add Transition</button>
+            </form>
+        </div>
+
+        <div class="form-section">
+            <h3>Edit Initial State</h3>
+            <form id="editInitialStateForm">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <div class="form-group">
+                    <label for="initialState">Initial State:</label>
+                    <select id="initialState" name="initialState" required>
+                        <%# Will be populated by JavaScript %>
+                    </select>
+                </div>
+                <button type="submit">Set Initial State</button>
+            </form>
+        </div>
+
+        <div class="form-section">
+            <h3>Save/Reload</h3>
+            <button id="reloadGraphButton">Reload Graph</button>
+            <p><small>Modifications are saved to the server immediately. Reload graph to see changes if auto-update fails.</small></p>
+        </div>
+         <div class="form-section">
+            <h3>Raw JSON Definition</h3>
+            <textarea id="fsmJsonDefinition" rows="10" style="width: 100%; font-family: monospace;" readonly></textarea>
+        </div>
+    </div>
+</div>
+
+<script src="https://d3js.org/d3.v5.min.js"></script>
+<script src="https://unpkg.com/@hpcc-js/wasm@0.3.11/dist/index.min.js"></script>
+<script src="https://unpkg.com/d3-graphviz@3.0.5/build/d3-graphviz.js"></script>
+<!-- Or use local copies from node_modules if preferred/possible -->
+
+<script>
+    const fsmId = "<%= fsmId %>";
+    const csrfToken = "<%= csrfToken %>";
+    // Make API_TOKEN available to client-side script via a global variable.
+    // This is a security risk for production.
+    const API_TOKEN = "<%= locals.apiTokenForClient %>";
+    let currentFsmDefinition = {};
+
+    function displayFlashMessage(type, message) {
+        const existingMessages = document.querySelectorAll(".flash-message");
+        existingMessages.forEach(msg => msg.remove());
+        const nav = document.querySelector("nav");
+        const p = document.createElement("p");
+        p.className = type + " flash-message";
+        p.textContent = message;
+        nav.insertAdjacentElement("afterend", p);
+        setTimeout(() => p.remove(), 5000);
+    }
+
+    async function fetchDotString() {
+        const response = await fetch(`/api/fsm/${fsmId}/dot`, {
+            headers: { "Authorization": "Bearer " + API_TOKEN }
+        });
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Failed to fetch .dot string: ${response.status}`);
+        }
+        return await response.text();
+    }
+
+    async function fetchFullFsmDefinition() {
+        const response = await fetch(`/api/fsm/${fsmId}/definition`, {
+            headers: { "Authorization": "Bearer " + API_TOKEN }
+        });
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Failed to fetch FSM definition: ${response.status}`);
+        }
+        currentFsmDefinition = await response.json();
+        document.getElementById("fsmJsonDefinition").value = JSON.stringify(currentFsmDefinition, null, 2);
+        populateStateDropdowns();
+    }
+
+    async function renderGraph() {
+        try {
+            const dotString = await fetchDotString();
+            d3.select("#graph").graphviz({ useWorker: false })
+                .renderDot(dotString)
+                .on("end", function () {
+                    console.log("Graph rendered.");
+                });
+        } catch (error) {
+            console.error("Error rendering graph:", error);
+            displayFlashMessage("error", "Could not render graph: " + error.message);
+            d3.select("#graph").html(`<p style='color:red;'>Error rendering graph: ${error.message}</p>`);
+        }
+    }
+
+    async function loadInitialData() {
+        try {
+            await fetchFullFsmDefinition(); // Fetches JSON, populates dropdowns
+            await renderGraph(); // Renders graph from DOT
+        } catch (error) {
+            console.error("Error loading initial data:", error);
+            displayFlashMessage("error", "Failed to load FSM data: " + error.message);
+        }
+    }
+
+    function getAllStatesFromDefinition(definition) {
+        const states = new Set();
+        if (definition.initial) {
+            states.add(definition.initial);
+        }
+        if (definition.transitions) {
+            definition.transitions.forEach(t => {
+                states.add(t.from);
+                states.add(t.to);
+            });
+        }
+        if (definition.states) { // Explicitly defined states
+             definition.states.forEach(s => {
+                const stateName = typeof s === "string" ? s : s.name;
+                if (stateName) states.add(stateName);
+             });
+        }
+        return Array.from(states).sort();
+    }
+
+    function populateStateDropdowns() {
+        const states = getAllStatesFromDefinition(currentFsmDefinition);
+
+        const fromStateSelect = document.getElementById("fromState");
+        const toStateSelect = document.getElementById("toState");
+        const initialStateSelect = document.getElementById("initialState");
+
+        fromStateSelect.innerHTML = "";
+        toStateSelect.innerHTML = "";
+        initialStateSelect.innerHTML = "";
+
+        if (states.length === 0) {
+            const option = new Option("-- No states defined --", "");
+            option.disabled = true;
+            fromStateSelect.add(option.cloneNode(true));
+            toStateSelect.add(option.cloneNode(true));
+            initialStateSelect.add(option.cloneNode(true));
+        } else {
+            states.forEach(state => {
+                fromStateSelect.add(new Option(state, state));
+                toStateSelect.add(new Option(state, state));
+                initialStateSelect.add(new Option(state, state));
+            });
+        }
+
+        if (currentFsmDefinition.initial && states.includes(currentFsmDefinition.initial)) {
+            initialStateSelect.value = currentFsmDefinition.initial;
+        } else if (states.length > 0) {
+            initialStateSelect.value = states[0]; // Default to first if not set or invalid
+        }
+    }
+
+    document.getElementById("addStateForm").addEventListener("submit", async function(event) {
+        event.preventDefault();
+        const newStateName = document.getElementById("newStateName").value.trim();
+        if (!newStateName) {
+            displayFlashMessage("error", "State name cannot be empty.");
+            return;
+        }
+        try {
+            const response = await fetch(`/api/fsm/${fsmId}/state`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Authorization": "Bearer " + API_TOKEN },
+                body: JSON.stringify({ name: newStateName })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || "Failed to add state");
+
+            currentFsmDefinition = result.currentDefinition; // Update definition from response
+            document.getElementById("fsmJsonDefinition").value = JSON.stringify(currentFsmDefinition, null, 2);
+            populateStateDropdowns();
+            await renderGraph();
+            displayFlashMessage("success", result.message || `State '${newStateName}' added.`);
+            document.getElementById("newStateName").value = "";
+        } catch (error) {
+            displayFlashMessage("error", error.message);
+        }
+    });
+
+    document.getElementById("addTransitionForm").addEventListener("submit", async function(event) {
+        event.preventDefault();
+        const name = document.getElementById("transitionName").value.trim();
+        const from = document.getElementById("fromState").value;
+        const to = document.getElementById("toState").value;
+
+        if (!name || !from || !to) {
+            displayFlashMessage("error", "Transition name, from state, and to state are required.");
+            return;
+        }
+        try {
+            const response = await fetch(`/api/fsm/${fsmId}/transition_def`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Authorization": "Bearer " + API_TOKEN },
+                body: JSON.stringify({ name, from, to })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || "Failed to add transition");
+
+            currentFsmDefinition = result.currentDefinition;
+            document.getElementById("fsmJsonDefinition").value = JSON.stringify(currentFsmDefinition, null, 2);
+            populateStateDropdowns(); // States might not change, but good practice
+            await renderGraph();
+            displayFlashMessage("success", result.message || `Transition '${name}' added.`);
+            document.getElementById("transitionName").value = "";
+        } catch (error) {
+            displayFlashMessage("error", error.message);
+        }
+    });
+
+    document.getElementById("editInitialStateForm").addEventListener("submit", async function(event) {
+        event.preventDefault();
+        const newInitialState = document.getElementById("initialState").value;
+        if (!newInitialState) {
+            displayFlashMessage("error", "Please select an initial state.");
+            return;
+        }
+        try {
+            const response = await fetch(`/api/fsm/${fsmId}/initial`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Authorization": "Bearer " + API_TOKEN },
+                body: JSON.stringify({ initial: newInitialState })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || "Failed to set initial state");
+
+            currentFsmDefinition = result.currentDefinition;
+            document.getElementById("fsmJsonDefinition").value = JSON.stringify(currentFsmDefinition, null, 2);
+            populateStateDropdowns(); // Initial state select might need re-evaluating
+            await renderGraph();
+            displayFlashMessage("success", result.message || `Initial state set to '${newInitialState}'.`);
+        } catch (error) {
+            displayFlashMessage("error", error.message);
+        }
+    });
+
+    document.getElementById("reloadGraphButton").addEventListener("click", async () => {
+        displayFlashMessage("success", "Reloading data and graph..."); // User feedback
+        await loadInitialData();
+    });
+
+    // Initial load
+    loadInitialData();
+</script>
+<style>
+    .editor-container { display: flex; gap: 20px; }
+    .graph-container { flex: 2; }
+    .forms-container { flex: 1; }
+    .form-section { background-color: #f9f9f9; padding: 15px; margin-bottom: 15px; border-radius: 4px; border: 1px solid #eee; }
+    .form-section h3 { margin-top: 0; }
+</style>
+<%- include("partials/footer") %>

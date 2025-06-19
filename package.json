@@ -1,0 +1,31 @@
+{
+  "name": "js-fsm-project",
+  "version": "1.0.0",
+  "description": "State machine application with API and Asterisk integration",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "echo \"No tests configured\""
+  },
+  "keywords": [
+    "statemachine",
+    "asterisk",
+    "api"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "ari-client": "^2.2.0",
+    "axios": "^1.6.0",
+    "body-parser": "^1.20.2",
+    "csurf": "^1.11.0",
+    "d3": "^7.9.0",
+    "d3-graphviz": "^5.6.0",
+    "dotenv": "^16.3.1",
+    "ejs": "^3.1.10",
+    "express": "^4.18.2",
+    "express-session": "^1.18.1",
+    "javascript-state-machine": "^3.1.0",
+    "multer": "^2.0.1"
+  }
+}

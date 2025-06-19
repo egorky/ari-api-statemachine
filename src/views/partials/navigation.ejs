@@ -1,0 +1,14 @@
+<nav>
+    <a href="/">Home</a>
+    <% if (user) { %>
+        <a href="/dashboard">Dashboard</a>
+        <form action="/logout" method="POST" style="display: inline;">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <button type="submit" class="logout-btn">Logout</button>
+        </form>
+    <% } else { %>
+        <a href="/login">Login</a>
+    <% } %>
+</nav>
+<% if (messages.error && messages.error.length > 0) { %><p class="error"><%= messages.error.join(", ") %></p><% } %>
+<% if (messages.success && messages.success.length > 0) { %><p class="success"><%= messages.success.join(", ") %></p><% } %>
