@@ -108,7 +108,7 @@ async function dtmfReceivedHandler(event, channel) {
 async function doAriAction(actionName, fsmInstance, params = {}) {
     if (!ariClient) throw new Error("ARI client not connected.");
     const channelData = activeChannels.get(fsmInstance.channelId);
-    if (!channelData || !channelData.channel) throw new Error(\`No active channel for ARI action ${actionName}.\`);
+    if (!channelData || !channelData.channel) throw new Error(`No active channel for ARI action ${actionName}.`);
     const { channel } = channelData;
     console.log(\`ARI Action on \${channel.id}: \${actionName}, Params: \`, params);
 
