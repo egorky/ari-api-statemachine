@@ -157,10 +157,13 @@ router.get("/fsm/edit-graphical/:machineId", isAuthenticated, (req, res) => {
         req.session.flash = { error: [`FSM "${machineId}" not found.`] };
         return res.redirect("/dashboard");
     }
+    console.log(`[routes/web.js] Rendering edit-fsm-graphical for ${machineId}. API_TOKEN from process.env: '${process.env.API_TOKEN}'`);
+    const tokenForClient = process.env.API_TOKEN || "";
+    console.log(`[routes/web.js] Value being passed as apiTokenForClient: '${tokenForClient}'`);
     res.render("edit-fsm-graphical", { // Render the new view
         title: "Edit FSM Graphically",
         fsmId: machineId,
-        apiTokenForClient: process.env.API_TOKEN || ""
+        apiTokenForClient: tokenForClient // Use the variable here
         // csrfToken is available via res.locals.csrfToken by middleware
     });
 });
