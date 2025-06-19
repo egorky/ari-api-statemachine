@@ -125,25 +125,25 @@ async function dtmfReceivedHandler(event, channel) {
 // Function to perform ARI actions from FSM methods
 // This will be passed to FSM methods similar to makeExternalApiCall
 async function doAriAction(actionName, fsmInstance, params = {}) {
-    if (!ariClient) throw new Error("ARI client not connected."); // Corrected: Removed backticks
+    if (!ariClient) throw new Error("ARI client not connected.");
     const channelData = activeChannels.get(fsmInstance.channelId);
-    if (!channelData || !channelData.channel) throw new Error(\`No active channel for ARI action \${actionName}.\`); // Corrected: Standard backticks
+    if (!channelData || !channelData.channel) throw new Error(\`No active channel for ARI action \${actionName}.\`);
     const { channel } = channelData;
-    console.log(\`ARI Action on \${channel.id}: \${actionName}, Params: \`, params); // Corrected: Standard backticks
+    console.log(\`ARI Action on \${channel.id}: \${actionName}, Params: \`, params);
 
     try {
         switch (actionName) {
             case "answer": return await channel.answer();
             case "hangup": activeChannels.delete(channel.id); return await channel.hangup();
             case "playSound":
-                if (!params.sound && !params.media) throw new Error("playSound action requires 'sound' or 'media' parameter."); // Corrected: Removed backticks
+                if (!params.sound && !params.media) throw new Error("playSound action requires 'sound' or 'media' parameter.");
                 const playback = ariClient.Playback();
-                const soundToPlay = params.media || \`sound:\${params.sound}\`; // Corrected: Standard backticks
+                const soundToPlay = params.media || \`sound:\${params.sound}\`;
                 // Listen for PlaybackFinished event to resolve the promise
                 return new Promise((resolve, reject) => {
                     const playbackId = playback.id;
                     const finishListener = (event, newPlayback) => { if (newPlayback.id === playbackId) {cleanup(); resolve({ id: playbackId, status: "finished" });}};
-                    const failListener = (event, failedPlayback) => { if (failedPlayback.id === playbackId) {cleanup(); reject(new Error(\`Playback failed for \${soundToPlay}\`));}}; // Corrected: Standard backticks
+                    const failListener = (event, failedPlayback) => { if (failedPlayback.id === playbackId) {cleanup(); reject(new Error(\`Playback failed for \${soundToPlay}\`));}};
                     const cleanup = () => { ariClient.removeListener("PlaybackFinished", finishListener); ariClient.removeListener("PlaybackFailed", failListener);};
                     ariClient.on("PlaybackFinished", finishListener);
                     ariClient.on("PlaybackFailed", failListener); // Listen for failures too
@@ -151,14 +151,14 @@ async function doAriAction(actionName, fsmInstance, params = {}) {
                         .catch(err => {cleanup(); reject(err);}); // Catch immediate errors from channel.play()
                 });
             case "waitForDtmf": // This is a conceptual action; actual DTMF is event-driven
-                console.log(\`FSM on channel \${channel.id} is now conceptually waiting for DTMF.\`); // Corrected: Standard backticks
+                console.log(\`FSM on channel \${channel.id} is now conceptually waiting for DTMF.\`);
                 return Promise.resolve({ message: "Conceptually waiting for DTMF." });
             default:
-                console.error(\`Unknown ARI action: \${actionName}\`); // Corrected: Standard backticks
-                throw new Error(\`Unknown ARI action: \${actionName}\`); // Corrected: Standard backticks
+                console.error(\`Unknown ARI action: \${actionName}\`);
+                throw new Error(\`Unknown ARI action: \${actionName}\`);
         }
     } catch (error) {
-        console.error(\`Error performing ARI action \${actionName} on channel \${channel.id}:\`, error); // Corrected: Standard backticks
+        console.error(\`Error performing ARI action \${actionName} on channel \${channel.id}:\`, error);
         throw error; // Re-throw to be caught by FSM lifecycle method
     }
 }
