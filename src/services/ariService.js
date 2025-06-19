@@ -88,7 +88,7 @@ async function dtmfReceivedHandler(event, channel) {
     const channelData = activeChannels.get(channel.id);
     if (channelData && channelData.fsm) {
         const { fsm } = channelData;
-        const transitionName = \`dtmf_\${digit}\`;
+        const transitionName = `dtmf_${digit}`;
         const genericTransitionName = "dtmfReceived";
 
         if (fsm.can(transitionName)) {
