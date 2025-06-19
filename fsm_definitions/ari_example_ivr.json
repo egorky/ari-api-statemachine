@@ -1,0 +1,34 @@
+{
+    "id": "ari_example_ivr",
+    "initial": "new_call",
+    "transitions": [
+        { "name": "startCall", "from": "new_call", "to": "welcome" },
+        { "name": "input_1", "from": "welcome", "to": "menu_1_selected" },
+        { "name": "input_2", "from": "welcome", "to": "menu_2_selected" },
+        { "name": "invalid_input", "from": "welcome", "to": "play_invalid_option" },
+        { "name": "return_to_welcome", "from": "play_invalid_option", "to": "welcome"},
+        { "name": "disconnect", "from": "*", "to": "call_ended" }
+    ],
+    "states": {
+        "new_call": {},
+        "welcome": {
+            "onEntry": "function(lifecycle) { console.log('FSM '+this.id+': Entering welcome state for channel ' + this.channelId); this.doAriAction('play', this.channelId, { media: 'sound:hello-world' }); }"
+        },
+        "menu_1_selected": {
+            "onEntry": "function(lifecycle) { console.log('FSM '+this.id+': Menu 1 selected on channel ' + this.channelId); this.doAriAction('play', this.channelId, { media: 'sound:digits/1' }); this.disconnect(); }"
+        },
+        "menu_2_selected": {
+            "onEntry": "function(lifecycle) { console.log('FSM '+this.id+': Menu 2 selected on channel ' + this.channelId); this.doAriAction('play', this.channelId, { media: 'sound:digits/2' }); this.disconnect(); }"
+        },
+        "play_invalid_option": {
+             "onEntry": "function(lifecycle) { console.log('FSM '+this.id+': Invalid option on channel ' + this.channelId); this.doAriAction('play', this.channelId, { media: 'sound:pbx-invalidoption' }); this.return_to_welcome(); }"
+        },
+        "call_ended": {
+            "onEntry": "function(lifecycle) { console.log('FSM '+this.id+': Call ended state for channel ' + this.channelId); this.doAriAction('hangup', this.channelId); }"
+        }
+    },
+    "methods": {
+        "onEnterNewCall": "function(lifecycle, eventPayload) { console.log('FSM '+this.id+': New call started for channel ' + this.channelId + '. Caller: ' + this.callerId); this.startCall(); }",
+        "onBeforeDisconnect": "function(lifecycle) { console.log('FSM '+this.id+': Disconnecting call on channel ' + this.channelId); }"
+    }
+}

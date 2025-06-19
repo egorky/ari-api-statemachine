@@ -1,170 +1,225 @@
-const Ari = require("ari-client");
-const stateMachineManager = require("./stateMachineManager");
+// src/services/ariService.js
+const path = require('path'); // Required for path.resolve
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+
+const Ari = require('ari-client');
+const stateMachineManager = require('./stateMachineManager');
 
 let ariClient = null;
-const activeChannels = new Map(); // Map channel.id to FSM instance and other data
+let activeChannelFsms = {}; // To store FSM instances per channel
+const DEFAULT_ARI_FSM_ID = 'ari_example_ivr'; // Or make this configurable
 
 async function connectAri() {
-    if (ariClient) return ariClient;
+    if (ariClient) {
+        console.log('ARI client already connected or connecting.');
+        return ariClient;
+    }
 
-    const { ASTERISK_ARI_URL, ASTERISK_ARI_USER, ASTERISK_ARI_PASSWORD, ASTERISK_ARI_APP_NAME } = process.env;
+    const { ASTERISK_URL, ASTERISK_USERNAME, ASTERISK_PASSWORD, ASTERISK_APP_NAME } = process.env;
 
-    if (!ASTERISK_ARI_URL || !ASTERISK_ARI_USER || !ASTERISK_ARI_PASSWORD || !ASTERISK_ARI_APP_NAME) {
-        console.error("Asterisk ARI connection details missing in .env file. ARI integration will be disabled.");
+    if (!ASTERISK_URL || !ASTERISK_USERNAME || !ASTERISK_PASSWORD || !ASTERISK_APP_NAME) {
+        console.error('Asterisk ARI connection details missing in .env file. ARI service will not start.');
         return null;
     }
 
+    console.log(`Attempting to connect to ARI at ${ASTERISK_URL} for app ${ASTERISK_APP_NAME}`);
+
     try {
-        console.log(`Attempting to connect to ARI at ${ASTERISK_ARI_URL} with user ${ASTERISK_ARI_USER} for app ${ASTERISK_ARI_APP_NAME}...`);
-        const client = await Ari.connect(ASTERISK_ARI_URL, ASTERISK_ARI_USER, ASTERISK_ARI_PASSWORD);
-        ariClient = client;
-        console.log("Successfully connected to Asterisk ARI.");
+        ariClient = await Ari.connect(ASTERISK_URL, ASTERISK_USERNAME, ASTERISK_PASSWORD);
+        console.log('Successfully connected to Asterisk ARI.');
 
-        client.on("StasisStart", stasisStartHandler);
-        client.on("StasisEnd", stasisEndHandler);
-        client.on("ChannelDtmfReceived", dtmfReceivedHandler);
-        // Add other event handlers as needed: PlaybackFinished, ChannelHangupRequest etc.
+        ariClient.on('StasisStart', stasisStartHandler);
+        ariClient.on('StasisEnd', stasisEndHandler);
+        // Add more event handlers as needed, e.g., for DTMF
+        // ariClient.on('ChannelDtmfReceived', dtmfReceivedHandler);
 
-        await client.start(ASTERISK_ARI_APP_NAME);
-        console.log(`ARI application "${ASTERISK_ARI_APP_NAME}" started and listening for events.`);
+        ariClient.on('disconnect', () => {
+            console.log('Disconnected from Asterisk ARI. Attempting to reconnect...');
+            ariClient = null; // Reset client
+            setTimeout(connectAri, 5000); // Reconnect after 5 seconds
+        });
 
-        return client;
+        ariClient.on('error', (err) => {
+            console.error('ARI Client Error:', err);
+            // Depending on error, might need to attempt reconnect or specific handling
+            if (err.message.includes('ECONNREFUSED')) {
+                 console.log('Connection refused. Will attempt to reconnect.');
+                 ariClient = null;
+                 setTimeout(connectAri, 10000); // Reconnect after 10 seconds
+            }
+        });
+
+
+        await ariClient.start(ASTERISK_APP_NAME);
+        console.log(`ARI application ${ASTERISK_APP_NAME} started and listening for events.`);
+        return ariClient;
+
     } catch (err) {
-        console.error("Failed to connect to Asterisk ARI or start application:", err.message);
-        ariClient = null; // Ensure client is null on failure
-        // Implement retry logic if necessary
+        console.error('Failed to connect to Asterisk ARI:', err.message);
+        ariClient = null; // Reset client on failure
+        console.log('Will attempt to reconnect in 10 seconds...');
+        setTimeout(connectAri, 10000); // Attempt to reconnect after 10 seconds
         return null;
     }
 }
 
-// --- ARI Event Handlers ---
 async function stasisStartHandler(event, channel) {
-    console.log(`StasisStart event for channel ${channel.id}. Args: ${event.args}`);
-    // event.args might contain data passed from dialplan, e.g., the FSM ID to use.
-    // Example: Dialplan might do Stasis(fsm_ari_app,fsmId=some_fsm)
-    const fsmId = event.args && event.args[0]; // This depends on how Stasis is called
+    console.log(`StasisStart: Channel ${channel.id} entered ${process.env.ASTERISK_APP_NAME}. Caller: ${channel.caller.number}. Event time: ${event.timestamp}`);
 
-    if (!fsmId) {
-        console.warn(`No FSM ID provided for channel ${channel.id} in StasisStart. Ignoring.`);
-        // Optionally hangup or play an error.
-        // await channel.hangup();
-        return;
-    }
+    const fsmId = DEFAULT_ARI_FSM_ID; // Could be determined dynamically in the future
+    const initialData = {
+        channelId: channel.id,
+        callerId: channel.caller.number,
+        // Add any other relevant data from the 'event' or 'channel' objects
+        dialplan: {
+            context: channel.dialplan.context,
+            exten: channel.dialplan.exten,
+            priority: channel.dialplan.priority
+        }
+    };
 
-    console.log(`Channel ${channel.id} entered Stasis. Attempting to associate with FSM: ${fsmId}`);
+    // Pass the 'doAriAction' function to the state machine manager
+    const ariOps = { doAriAction: doAriAction };
 
     try {
+        const fsm = stateMachineManager.getStateMachine(fsmId, initialData, ariOps);
+        activeChannelFsms[channel.id] = fsm;
+        console.log(`FSM instance created for channel ${channel.id} using FSM ID ${fsmId}.`);
+
+        // Answer the call (moved here to ensure FSM is ready)
         await channel.answer();
         console.log(`Channel ${channel.id} answered.`);
 
-        // Initial data for the FSM, including the channel itself for ARI operations
-        const initialData = {
-            channelId: channel.id,
-            callerId: channel.caller.number,
-            // We will add a helper to FSMs to interact with this channel object later
-        };
-
-        const fsm = stateMachineManager.getStateMachine(fsmId, initialData, { doAriAction }); // Pass it here
-        // Store FSM and channel together
-        activeChannels.set(channel.id, { fsm, channel });
-        console.log(`FSM "${fsmId}" associated with channel ${channel.id}.`);
-
-        // Trigger an initial transition, e.g., "callStart" or use current state if FSM handles it
-        // This assumes FSMs designed for ARI have an "ariCallStart" transition or similar
-        // or their initial state handles the call beginning.
-        if (fsm.can("ariCallStart")) {
-            await fsm.ariCallStart({ callerNumber: channel.caller.number, channelId: channel.id });
-            console.log(`FSM "${fsmId}" on channel ${channel.id} transitioned via ariCallStart to state: ${fsm.state}`);
-        } else {
-            console.log(`FSM "${fsmId}" on channel ${channel.id} is in initial state: ${fsm.state}. No specific "ariCallStart" transition found or callable.`);
-            // The FSMs onEnter<InitialState> should handle the first action if no explicit start transition.
+        // Trigger an initial transition or let an onEntry hook in the initial state handle it.
+        // The example FSM 'ari_example_ivr' has an onEnterNewCall method.
+        // To trigger it, the FSM's initial state method should be called by a transition.
+        // If 'new_call' is the initial state, and it has an onEntry method, it should fire.
+        // Or, explicitly call a transition like 'startCall' if defined.
+        if (fsm.can('startCall')) { // As defined in ari_example_ivr.json
+            await fsm.startCall({ eventData: event }); // Pass event data if needed by the FSM method
+        } else if (typeof fsm.onEnterNewCall === 'function' && fsm.state === 'new_call') {
+            // This case is for when the initial state itself has an onEntry,
+            // but JSM calls onEntry methods associated with states, not transitions.
+            // The 'onEnterNewCall' in the example is a general method, not tied to a state's onEntry directly.
+            // For it to be useful, it should be called by a transition or be an onEntry of the initial state.
+            // Let's assume 'startCall' transition is the primary way to kick things off.
+            console.log("Initial transition 'startCall' not available, check FSM definition if this is an error.");
         }
 
-    } catch (error) {
-        console.error(`Error handling StasisStart for channel ${channel.id} with FSM ${fsmId}:`, error);
-        // Ensure channel is hung up if something goes wrong during setup
+
+        channel.on('ChannelDtmfReceived', (dtmfEvent, dtmfChannel) => {
+            // Pass the FSM instance directly if possible, or fsmId/channelId to retrieve it
+            dtmfReceivedHandler(dtmfEvent, dtmfChannel, activeChannelFsms[dtmfChannel.id]);
+        });
+
+    } catch (err) {
+        console.error(`Error in StasisStart for channel ${channel.id}: ${err.message}`, err);
+        // Attempt to hangup if there was a critical error setting up the FSM
         try {
-            if (!channel.destroyed) await channel.hangup();
-        } catch (hangupError) {
-            console.error(`Error hanging up channel ${channel.id} after StasisStart failure:`, hangupError);
+            await channel.hangup();
+        } catch (hangupErr) {
+            console.error(`Failed to hangup channel ${channel.id} after StasisStart error: ${hangupErr.message}`);
         }
-        activeChannels.delete(channel.id);
     }
 }
 
 function stasisEndHandler(event, channel) {
-    console.log(`StasisEnd event for channel ${channel.id}. Cleaning up.`);
-    activeChannels.delete(channel.id);
-    // Any other cleanup for this channel
-}
-
-async function dtmfReceivedHandler(event, channel) {
-    const digit = event.digit;
-    console.log(`DTMF digit "${digit}" received on channel ${channel.id}.`);
-    const channelData = activeChannels.get(channel.id);
-    if (channelData && channelData.fsm) {
-        const { fsm } = channelData;
-        // Example: transition name could be "dtmf_<digit>" or a generic "dtmfInput"
-        const transitionName = `dtmf_${digit}`;
-        const genericTransitionName = "dtmfReceived";
-
-        if (fsm.can(transitionName)) {
-            await fsm[transitionName]({ digit });
-            console.log(`FSM on ${channel.id} transitioned via ${transitionName} to state: ${fsm.state}`);
-        } else if (fsm.can(genericTransitionName)) {
-            await fsm[genericTransitionName]({ digit });
-            console.log(`FSM on ${channel.id} transitioned via ${genericTransitionName} to state: ${fsm.state}`);
-        } else {
-            console.log(`FSM on ${channel.id} in state ${fsm.state} cannot handle DTMF "${digit}".`);
+    console.log(`StasisEnd: Channel ${channel.id} left ${process.env.ASTERISK_APP_NAME}. Event time: ${event.timestamp}`);
+    if (activeChannelFsms[channel.id]) {
+        const fsm = activeChannelFsms[channel.id];
+        // Optionally, trigger a final transition if the FSM is not already in a terminal state
+        if (fsm && fsm.can('disconnect') && fsm.state !== 'call_ended') {
+            console.log(`Channel ${channel.id} ended. Attempting to transition FSM to call_ended.`);
+            fsm.disconnect({ eventData: event }).catch(err => { // Fire and forget with catch
+                console.error(`Error during final disconnect transition for channel ${channel.id}: ${err.message}`);
+            });
         }
-    } else {
-        console.warn(`Received DTMF on channel ${channel.id} but no associated FSM found.`);
+        delete activeChannelFsms[channel.id];
+        console.log(`FSM instance for channel ${channel.id} cleaned up.`);
     }
 }
 
-// Function to perform ARI actions from FSM methods
-// This will be passed to FSM methods similar to makeExternalApiCall
-async function doAriAction(actionName, fsmInstance, params = {}) {
-    if (!ariClient) throw new Error("ARI client not connected.");
-    const channelData = activeChannels.get(fsmInstance.channelId);
-    if (!channelData || !channelData.channel) throw new Error(`No active channel for ARI action ${actionName}.`);
-    const { channel } = channelData;
-    console.log(`ARI Action on ${channel.id}: ${actionName}, Params: `, params);
+async function dtmfReceivedHandler(event, channel, fsm) { // fsm instance passed directly
+    const digit = event.digit;
+    console.log(`DTMF digit ${digit} received on channel ${channel.id}`);
+
+    if (!fsm) {
+        console.error(`No FSM instance found for channel ${channel.id} during DTMF handling.`);
+        return;
+    }
+
+    console.log(`Current FSM state for channel ${channel.id}: ${fsm.state}`);
 
     try {
-        switch (actionName) {
-            case "answer": return await channel.answer();
-            case "hangup": activeChannels.delete(channel.id); return await channel.hangup();
-            case "playSound":
-                if (!params.sound && !params.media) throw new Error("playSound action requires 'sound' or 'media' parameter.");
-                const playback = ariClient.Playback();
-                const soundToPlay = params.media || `sound:${params.sound}`;
-                // Listen for PlaybackFinished event to resolve the promise
-                return new Promise((resolve, reject) => {
-                    const playbackId = playback.id;
-                    const finishListener = (event, newPlayback) => { if (newPlayback.id === playbackId) {cleanup(); resolve({ id: playbackId, status: "finished" });}};
-                    const failListener = (event, failedPlayback) => { if (failedPlayback.id === playbackId) {cleanup(); reject(new Error(`Playback failed for ${soundToPlay}`));}};
-                    const cleanup = () => { ariClient.removeListener("PlaybackFinished", finishListener); ariClient.removeListener("PlaybackFailed", failListener);};
-                    ariClient.on("PlaybackFinished", finishListener);
-                    ariClient.on("PlaybackFailed", failListener); // Listen for failures too
-                    channel.play({ media: soundToPlay }, playback)
-                        .catch(err => {cleanup(); reject(err);}); // Catch immediate errors from channel.play()
-                });
-            case "waitForDtmf": // This is a conceptual action; actual DTMF is event-driven
-                console.log(`FSM on channel ${channel.id} is now conceptually waiting for DTMF.`);
-                return Promise.resolve({ message: "Conceptually waiting for DTMF." });
-            default:
-                console.error(`Unknown ARI action: ${actionName}`);
-                throw new Error(`Unknown ARI action: ${actionName}`);
+        const transitionName = `input_${digit}`; // e.g., input_1, input_#
+        const genericDtmfTransition = 'handleDtmf';
+
+        if (fsm.can(transitionName)) {
+            console.log(`Executing DTMF transition: ${transitionName} for channel ${channel.id}`);
+            await fsm[transitionName]({ digit: digit, eventData: event });
+        } else if (fsm.can(genericDtmfTransition)) {
+            console.log(`Executing generic DTMF transition: ${genericDtmfTransition} for channel ${channel.id} with digit ${digit}`);
+            await fsm[genericDtmfTransition]({ digit: digit, eventData: event });
+        } else {
+            console.log(`No specific or generic DTMF transition found for digit ${digit} from state ${fsm.state} on channel ${channel.id}. Checking for 'invalid_input'.`);
+            // Fallback to a general invalid input transition if available
+            if (fsm.can('invalid_input')) {
+                await fsm.invalid_input({ digit: digit, eventData: event });
+            } else {
+                console.warn(`No transition found for DTMF ${digit} from state ${fsm.state} on channel ${channel.id}, and no 'invalid_input' fallback.`);
+            }
         }
-    } catch (error) {
-        console.error(`Error performing ARI action ${actionName} on channel ${channel.id}:`, error);
-        throw error; // Re-throw to be caught by FSM lifecycle method
+    } catch (err) {
+        console.error(`Error processing DTMF ${digit} for channel ${channel.id}: ${err.message}`, err);
+    }
+}
+
+// Function to allow FSMs to perform ARI actions
+// This will be passed to the FSM instance via stateMachineManager
+async function doAriAction(actionName, channelId, params) {
+    if (!ariClient) {
+        console.error("ARI client not connected. Cannot perform action:", actionName);
+        throw new Error("ARI client not connected.");
+    }
+
+    const channel = await ariClient.channels.get({ channelId: channelId });
+    if (!channel) {
+        console.error(`Channel ${channelId} not found for ARI action ${actionName}`);
+        throw new Error(`Channel ${channelId} not found.`);
+    }
+
+    console.log(`Executing ARI action "${actionName}" on channel ${channelId} with params:`, params);
+    try {
+        switch (actionName) {
+            case 'answer':
+                return await channel.answer();
+            case 'hangup':
+                return await channel.hangup();
+            case 'play':
+                if (!params.media) throw new Error("Missing 'media' parameter for play action.");
+                const playback = ariClient.Playback();
+                // channel.play returns the playback object, not a promise directly for completion.
+                // For simplicity, we fire and forget here. For more control, manage playback events.
+                channel.play({ media: params.media }, playback);
+                return { playbackId: playback.id, message: "Playback initiated." };
+            case 'getVariable':
+                if (!params.variable) throw new Error("Missing 'variable' parameter for getVariable action.");
+                return await channel.getChannelVar({ variable: params.variable });
+            case 'setVariable':
+                if (!params.variable || params.value === undefined) throw new Error("Missing 'variable' or 'value' for setVariable action.");
+                return await channel.setChannelVar({ variable: params.variable, value: params.value });
+            // Add more actions as needed: bridge, record, etc.
+            default:
+                console.warn(`Unsupported ARI action: ${actionName}`);
+                throw new Error(`Unsupported ARI action: ${actionName}`);
+        }
+    } catch (err) {
+        console.error(`Error executing ARI action ${actionName} on channel ${channelId}:`, err);
+        throw err; // Re-throw to be handled by the FSM or calling code
     }
 }
 
 module.exports = {
     connectAri,
-    doAriAction,
-    // Potentially expose activeChannels or specific channel interaction functions if needed by other parts
+    doAriAction // Export so it can be used by stateMachineManager
 };

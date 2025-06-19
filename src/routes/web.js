@@ -150,46 +150,35 @@ router.get("/fsm/edit/:machineId", isAuthenticated, (req, res) => {
     });
 });
 
-// Error handler for multer (e.g. file too large)
-router.use((err, req, res, next) => {
-    if (err instanceof multer.MulterError) {
-        req.session.flash = { error: [`File upload error: ${err.message}`] };
-        return res.redirect("/dashboard");
-    } else if (err) { // Other errors
-        req.session.flash = { error: [`An unexpected error occurred: ${err.message}`] };
-        return res.redirect(req.path || "/dashboard");
-    }
-    next();
-});
-
-router.get("/fsm/edit/:machineId", isAuthenticated, (req, res) => {
+router.get("/fsm/edit-graphical/:machineId", isAuthenticated, (req, res) => {
     const { machineId } = req.params;
-    // Check if FSM definition exists (optional, as editor page will try to load it)
     const fsmExists = stateMachineManager.listFsmDefinitionFiles().includes(machineId);
     if (!fsmExists) {
-        req.session.flash = { error: [`FSM ${machineId} not found.`] };
+        req.session.flash = { error: [`FSM "${machineId}" not found.`] };
         return res.redirect("/dashboard");
     }
-    // Pass API_TOKEN to the view - THIS IS A SECURITY RISK FOR PRODUCTION
-    // In a real app, the /api/fsm/:machineId/dot endpoint should ideally use session-based auth
-    // if called from an authenticated web session, or have a separate secure mechanism.
-    // For this exercise, we acknowledge the risk.
-    // Using res.locals to pass process to the template.
-    res.locals.process = process;
-    res.render("edit-fsm", {
-        title: "Edit FSM",
-        fsmId: machineId
-        // csrfToken is already available via middleware
+    console.log(`[routes/web.js] Rendering edit-fsm-graphical for ${machineId}. API_TOKEN from process.env: '${process.env.API_TOKEN}'`);
+    const tokenForClient = process.env.API_TOKEN || "";
+    console.log(`[routes/web.js] Value being passed as apiTokenForClient: '${tokenForClient}'`);
+    res.render("edit-fsm-graphical", { // Render the new view
+        title: "Edit FSM Graphically",
+        fsmId: machineId,
+        apiTokenForClient: tokenForClient // Use the variable here
+        // csrfToken is available via res.locals.csrfToken by middleware
     });
 });
 
 // Error handler for multer (e.g. file too large)
+// This should be defined only once. Removed the duplicate.
 router.use((err, req, res, next) => {
     if (err instanceof multer.MulterError) {
         req.session.flash = { error: [`File upload error: ${err.message}`] };
         return res.redirect("/dashboard");
-    } else if (err) { // Other errors
+    } else if (err && err.message) { // Make sure err.message exists
         req.session.flash = { error: [`An unexpected error occurred: ${err.message}`] };
+        return res.redirect(req.path || "/dashboard");
+    } else if (err) { // Fallback for other kinds of errors
+        req.session.flash = { error: ["An unexpected error occurred."] };
         return res.redirect(req.path || "/dashboard");
     }
     next();

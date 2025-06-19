@@ -291,5 +291,28 @@ router.post("/fsm/:machineId/initial", authenticateToken, async (req, res) => {
     }
 });
 
+router.post("/fsm/:machineId/save_graphical_definition", authenticateToken, async (req, res) => {
+    const { machineId } = req.params;
+    const fsmDefinition = req.body; // Expecting the full FSM JSON definition
+
+    if (!fsmDefinition || typeof fsmDefinition !== 'object') {
+        return res.status(400).json({ error: "Invalid FSM definition payload." });
+    }
+    if (fsmDefinition.id !== machineId) {
+        return res.status(400).json({ error: `FSM ID in definition ('${fsmDefinition.id}') must match URL parameter ('${machineId}').` });
+    }
+
+    try {
+        // Convert the pretty JSON string for saving
+        const definitionString = JSON.stringify(fsmDefinition, null, 2);
+        stateMachineManager.saveFsmDefinition(machineId, definitionString);
+        stateMachineManager.reloadMachineDefinition(machineId); // Ensure it is loaded into cache
+
+        res.json({ message: `FSM "${machineId}" saved successfully from graphical editor.` });
+    } catch (error) {
+        console.error(`Error saving FSM ${machineId} from graphical editor:`, error);
+        res.status(500).json({ error: `Failed to save FSM: ${error.message}` });
+    }
+});
 
 module.exports = router;
