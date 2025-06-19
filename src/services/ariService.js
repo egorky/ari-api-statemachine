@@ -105,20 +105,20 @@ async function dtmfReceivedHandler(event, channel) {
     if (channelData && channelData.fsm) {
         const { fsm } = channelData;
         // Example: transition name could be "dtmf_<digit>" or a generic "dtmfInput"
-        const transitionName = \`dtmf_\${digit}\`;
+        const transitionName = `dtmf_${digit}`;
         const genericTransitionName = "dtmfReceived";
 
         if (fsm.can(transitionName)) {
             await fsm[transitionName]({ digit });
-            console.log(\`FSM on \${channel.id} transitioned via \${transitionName} to state: \${fsm.state}\`);
+            console.log(`FSM on ${channel.id} transitioned via ${transitionName} to state: ${fsm.state}`);
         } else if (fsm.can(genericTransitionName)) {
             await fsm[genericTransitionName]({ digit });
-            console.log(\`FSM on \${channel.id} transitioned via \${genericTransitionName} to state: \${fsm.state}\`);
+            console.log(`FSM on ${channel.id} transitioned via ${genericTransitionName} to state: ${fsm.state}`);
         } else {
-            console.log(\`FSM on \${channel.id} in state \${fsm.state} cannot handle DTMF "\${digit}".\`);
+            console.log(`FSM on ${channel.id} in state ${fsm.state} cannot handle DTMF "${digit}".`);
         }
     } else {
-        console.warn(\`Received DTMF on channel \${channel.id} but no associated FSM found.\`);
+        console.warn(`Received DTMF on channel ${channel.id} but no associated FSM found.`);
     }
 }
 
@@ -127,9 +127,9 @@ async function dtmfReceivedHandler(event, channel) {
 async function doAriAction(actionName, fsmInstance, params = {}) {
     if (!ariClient) throw new Error("ARI client not connected.");
     const channelData = activeChannels.get(fsmInstance.channelId);
-    if (!channelData || !channelData.channel) throw new Error(\`No active channel for ARI action \${actionName}.\`);
+    if (!channelData || !channelData.channel) throw new Error(`No active channel for ARI action ${actionName}.`);
     const { channel } = channelData;
-    console.log(\`ARI Action on \${channel.id}: \${actionName}, Params: \`, params);
+    console.log(`ARI Action on ${channel.id}: ${actionName}, Params: `, params);
 
     try {
         switch (actionName) {
@@ -138,12 +138,12 @@ async function doAriAction(actionName, fsmInstance, params = {}) {
             case "playSound":
                 if (!params.sound && !params.media) throw new Error("playSound action requires 'sound' or 'media' parameter.");
                 const playback = ariClient.Playback();
-                const soundToPlay = params.media || \`sound:\${params.sound}\`;
+                const soundToPlay = params.media || `sound:${params.sound}`;
                 // Listen for PlaybackFinished event to resolve the promise
                 return new Promise((resolve, reject) => {
                     const playbackId = playback.id;
                     const finishListener = (event, newPlayback) => { if (newPlayback.id === playbackId) {cleanup(); resolve({ id: playbackId, status: "finished" });}};
-                    const failListener = (event, failedPlayback) => { if (failedPlayback.id === playbackId) {cleanup(); reject(new Error(\`Playback failed for \${soundToPlay}\`));}};
+                    const failListener = (event, failedPlayback) => { if (failedPlayback.id === playbackId) {cleanup(); reject(new Error(`Playback failed for ${soundToPlay}`));}};
                     const cleanup = () => { ariClient.removeListener("PlaybackFinished", finishListener); ariClient.removeListener("PlaybackFailed", failListener);};
                     ariClient.on("PlaybackFinished", finishListener);
                     ariClient.on("PlaybackFailed", failListener); // Listen for failures too
@@ -151,14 +151,14 @@ async function doAriAction(actionName, fsmInstance, params = {}) {
                         .catch(err => {cleanup(); reject(err);}); // Catch immediate errors from channel.play()
                 });
             case "waitForDtmf": // This is a conceptual action; actual DTMF is event-driven
-                console.log(\`FSM on channel \${channel.id} is now conceptually waiting for DTMF.\`);
+                console.log(`FSM on channel ${channel.id} is now conceptually waiting for DTMF.`);
                 return Promise.resolve({ message: "Conceptually waiting for DTMF." });
             default:
-                console.error(\`Unknown ARI action: \${actionName}\`);
-                throw new Error(\`Unknown ARI action: \${actionName}\`);
+                console.error(`Unknown ARI action: ${actionName}`);
+                throw new Error(`Unknown ARI action: ${actionName}`);
         }
     } catch (error) {
-        console.error(\`Error performing ARI action \${actionName} on channel \${channel.id}:\`, error);
+        console.error(`Error performing ARI action ${actionName} on channel ${channel.id}:`, error);
         throw error; // Re-throw to be caught by FSM lifecycle method
     }
 }
