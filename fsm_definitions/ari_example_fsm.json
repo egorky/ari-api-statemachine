@@ -10,26 +10,10 @@
     { "name": "hangupCall", "from": "*", "to": "finished" }
   ],
   "methods": {
-    "onEnterWaitForGreeting": "async function(lifecycle, payload, fsm, makeExternalApiCall, axios, doAriAction) {
-        console.log(\"ARI FSM: Entered waitForGreeting for channel \" + fsm.channelId + \". Playing welcome sound.\");
-        try {
-            await doAriAction(\"playSound\", fsm, { media: \"sound:hello-world\" });
-            fsm.greetingPlayed();
-        } catch (err) { console.error(\"ARI FSM: Error playing sound:\", err); fsm.hangupCall(); }
-    }",
+    "onEnterWaitForGreeting": "async function(lifecycle, payload, fsm, makeExternalApiCall, axios, doAriAction) {\n        console.log(\"ARI FSM: Entered waitForGreeting for channel \" + fsm.channelId + \". Playing welcome sound.\");\n        try {\n            await doAriAction(\"playSound\", fsm, { media: \"sound:hello-world\" });\n            fsm.greetingPlayed();\n        } catch (err) { console.error(\"ARI FSM: Error playing sound:\", err); fsm.hangupCall(); }\n    }",
     "onEnterMenu": "function() { console.log(\"ARI FSM: Entered menu. Waiting for DTMF (e.g., 1).\"); }",
-    "onEnterHandleOption1": "async function(lifecycle, payload, fsm, makeExternalApiCall, axios, doAriAction) {
-        console.log(\"ARI FSM: Handling DTMF option 1.\");
-        try {
-            await doAriAction(\"playSound\", fsm, { sound: \"digits/1\" });
-            await new Promise(resolve => setTimeout(resolve, 500));
-            fsm.hangupCall();
-        } catch (err) { console.error(\"ARI FSM: Error in handleOption1:\", err); fsm.hangupCall(); }
-    }",
-    "onBeforeHangupCall": "async function(lifecycle, payload, fsm, makeExternalApiCall, axios, doAriAction) {
-        console.log(\"ARI FSM: Hanging up call on channel \" + fsm.channelId);
-        try { await doAriAction(\"hangup\", fsm); } catch (err) { console.error(\"ARI FSM: Error during hangup:\", err); }
-    }",
+    "onEnterHandleOption1": "async function(lifecycle, payload, fsm, makeExternalApiCall, axios, doAriAction) {\n        console.log(\"ARI FSM: Handling DTMF option 1.\");\n        try {\n            await doAriAction(\"playSound\", fsm, { sound: \"digits/1\" }); \n            await new Promise(resolve => setTimeout(resolve, 500)); \n            fsm.hangupCall();\n        } catch (err) { console.error(\"ARI FSM: Error in handleOption1:\", err); fsm.hangupCall(); }\n    }",
+    "onBeforeHangupCall": "async function(lifecycle, payload, fsm, makeExternalApiCall, axios, doAriAction) {\n        console.log(\"ARI FSM: Hanging up call on channel \" + fsm.channelId);\n        try { await doAriAction(\"hangup\", fsm); } catch (err) { console.error(\"ARI FSM: Error during hangup:\", err); }\n    }",
     "onEnterFinished": "function() { console.log(\"ARI FSM: Call finished.\"); }"
   }
 }

@@ -30,31 +30,7 @@
   "methods": {
     "onBeforeStart": "function(lifecycle, eventPayload, fsm) { console.log(\"About to start example_fsm from state: \" + fsm.state + \". Payload: \", eventPayload); }",
     "onEnterRunning": "function(lifecycle, eventPayload, fsm) { console.log(\"Entered running state. Will auto-trigger process. Trace ID: \" + fsm.traceId); fsm.process({ detail: \"auto triggered from running\" }); }",
-    "onProcess": "async function(lifecycle, eventPayload, fsm, makeExternalApiCall) {
-        console.log(\"Processing started. Event payload: \", eventPayload);
-        console.log(\"FSM traceId: \" + fsm.traceId);
-        try {
-            // Assume eventPayload for start might contain userId for this example
-            // Or it could be in fsm.initialData if passed at the very beginning
-            const userIdToFetch = (eventPayload && eventPayload.userId) || (fsm.initialData && fsm.initialData.userId) || 1;
-            const userData = await makeExternalApiCall(\"fetchUserData\", fsm, { userId: userIdToFetch });
-            console.log(\"User data fetched:\", userData.name, userData.email);
-            fsm.userData = userData; // Store fetched data on FSM instance
-
-            const postResult = await makeExternalApiCall(\"postData\", fsm, { userId: userIdToFetch });
-            console.log(\"Post data result:\", postResult);
-            fsm.postResult = postResult;
-
-            // Simulate some other async work
-            await new Promise(resolve => setTimeout(resolve, 500));
-            console.log(\"Processing finished, userData and postResult stored on FSM instance.\");
-            fsm.complete(); // Transition to next state
-        } catch (err) {
-            console.error(\"Error during processing transition:\", err.message);
-            fsm.apiError = err.message;
-            fsm.fail(); // Transition to error state
-        }
-    }",
+    "onProcess": "async function(lifecycle, eventPayload, fsm, makeExternalApiCall) {\n        console.log(\"Processing started. Event payload: \", eventPayload);\n        console.log(\"FSM traceId: \" + fsm.traceId);\n        try {\n            // Assume eventPayload for start might contain userId for this example\n            // Or it could be in fsm.initialData if passed at the very beginning\n            const userIdToFetch = (eventPayload && eventPayload.userId) || (fsm.initialData && fsm.initialData.userId) || 1;\n            const userData = await makeExternalApiCall(\"fetchUserData\", fsm, { userId: userIdToFetch });\n            console.log(\"User data fetched:\", userData.name, userData.email);\n            fsm.userData = userData; // Store fetched data on FSM instance\n\n            const postResult = await makeExternalApiCall(\"postData\", fsm, { userId: userIdToFetch });\n            console.log(\"Post data result:\", postResult);\n            fsm.postResult = postResult;\n\n            // Simulate some other async work\n            await new Promise(resolve => setTimeout(resolve, 500));\n            console.log(\"Processing finished, userData and postResult stored on FSM instance.\");\n            fsm.complete(); // Transition to next state\n        } catch (err) {\n            console.error(\"Error during processing transition:\", err.message);\n            fsm.apiError = err.message;\n            fsm.fail(); // Transition to error state\n        }\n    }",
     "onEnterProcessing": "function() { console.log(\"Entered processing state. Waiting for async tasks...\"); }",
     "onEnterIdle": "function(lifecycle, eventPayload, fsm) { console.log(\"Entered idle state. FSM User data:\", fsm.userData, \"Post result:\", fsm.postResult); fsm.userData = null; fsm.postResult = null; }",
     "onEnterError": "function(lifecycle, eventPayload, fsm) { console.error(\"Entered error state. Error: \" + fsm.apiError); }"

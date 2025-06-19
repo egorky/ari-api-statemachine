@@ -133,7 +133,7 @@ router.get("/fsm/edit/:machineId", isAuthenticated, (req, res) => {
     // Check if FSM definition exists (optional, as editor page will try to load it)
     const fsmExists = stateMachineManager.listFsmDefinitionFiles().includes(machineId);
     if (!fsmExists) {
-        req.session.flash = { error: [\`FSM "\${machineId}" not found.\`] };
+            req.session.flash = { error: [`FSM "${machineId}" not found.`] };
         return res.redirect("/dashboard");
     }
     // Pass API_TOKEN to the view - THIS IS A SECURITY RISK FOR PRODUCTION
