@@ -308,8 +308,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function loadInitialData() {
         try {
-            console.log('Inspecting editor object just before clearModuleView:', editor);
-            editor.clearModuleView('Home'); // Clear editor at the start
+            editor.clear(); // Clear editor at the start
             initialFsmStateNodeId = null;
             loadedFsmTransitions = []; // Reset this too
             document.querySelectorAll('.drawflow-node.initial-state-node').forEach(n => n.classList.remove('initial-state-node'));
@@ -329,7 +328,7 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error("Error loading initial data for Drawflow or d3-graphviz:", error);
             displayFlashMessage("error", "Failed to load FSM data: " + error.message);
             // If Drawflow loading fails, ensure it's cleared or in a usable state
-            editor.clearModuleView('Home'); // Clear again on error
+            editor.clear(); // Clear again on error
             initialFsmStateNodeId = null;
             document.querySelectorAll('.drawflow-node.initial-state-node').forEach(n => n.classList.remove('initial-state-node'));
         }
@@ -337,7 +336,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function loadFsmIntoDrawflow(fsmDefinition) {
        if (!fsmDefinition || !editor) return;
-       editor.clearModuleView('Home'); // Clear again just in case
+       editor.clear(); // Clear again just in case
        connectionActions = {}; // Clear any existing connection actions
        initialFsmStateNodeId = null; // Reset, as visual markers are also cleared or reapplied
 
