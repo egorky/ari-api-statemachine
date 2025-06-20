@@ -23,6 +23,10 @@
                 <button id="addOnExitActionButton">Add onExit Action</button>
                 <span id="nodeActionIndicator" style="margin-left: 10px; font-style:italic;"></span>
             </span>
+            <span id="selectedConnectionActions" style="display:none; margin-left: 20px;">
+                <button id="addTransitionActionButton">Add/Edit Actions</button>
+                <span id="connectionActionIndicator" style="margin-left: 10px; font-style:italic;"></span>
+            </span>
         </div>
         <div id="drawflow-editor" style="width: 100%; height: 600px; border: 1px solid #ccc; margin-bottom: 20px;"></div>
         <button id="saveGraphicalDefinitionButton">Save Graphical Definition</button>
@@ -94,12 +98,22 @@
     // --- Event listener for editing node name on double-click ---
     const selectedNodeActionsContainer = document.getElementById('selectedNodeActions');
     const nodeActionIndicator = document.getElementById('nodeActionIndicator');
+    const selectedConnectionActionsContainer = document.getElementById('selectedConnectionActions');
+    const connectionActionIndicator = document.getElementById('connectionActionIndicator');
     let currentSelectedNodeId = null;
+    let currentSelectedConnectionId = null;
+    let connectionActions = {}; // Stores actions for connections { connectionId: [actions] }
 
     editor.on('nodeSelected', function(id) {
         currentSelectedNodeId = id;
         selectedNodeActionsContainer.style.display = 'inline';
-        updateActionIndicator(id);
+        updateActionIndicator(id); // Existing function for node actions
+
+        // Hide connection actions
+        selectedConnectionActionsContainer.style.display = 'none';
+        connectionActionIndicator.textContent = '';
+        currentSelectedConnectionId = null;
+        // editor.clearSelectedConnection(); // If drawflow has such a method
     });
 
     editor.on('nodeUnselected', function(id) { // Assuming 'nodeUnselected' event exists or handling click outside
@@ -111,6 +125,16 @@
              currentSelectedNodeId = null;
              selectedNodeActionsContainer.style.display = 'none';
              nodeActionIndicator.textContent = '';
+        }
+    });
+
+    document.getElementById("addTransitionActionButton").addEventListener("click", () => {
+        if (currentSelectedConnectionId) {
+            // The 'openActionModal' function will need to be adapted for transitions.
+            // For now, we can pass a specific type like 'onTransition'.
+            openActionModal('onTransition');
+        } else {
+            displayFlashMessage('error', 'Please select a transition (connection) first.');
         }
     });
 
@@ -132,8 +156,53 @@
                     selectedNodeActionsContainer.style.display = 'none';
                     nodeActionIndicator.textContent = '';
                 }
+                // Also ensure connection actions are hidden if canvas is clicked and no connection selected
+                if (editor.selected_connection == null) { // Drawflow might not have selected_connection
+                    currentSelectedConnectionId = null;
+                    selectedConnectionActionsContainer.style.display = 'none';
+                    connectionActionIndicator.textContent = '';
+                }
             }, 0);
         }
+    });
+
+    editor.on('connectionSelected', function(connectionData) {
+        // Drawflow's connectionData usually contains output_id, input_id, output_class, input_class
+        // We need a unique ID for the connection. A simple concatenation could work if IDs are stable.
+        // For Drawflow, the internal ID might not be directly exposed or suitable as a persistent key.
+        // Let's assume connectionData itself can be an object key or we derive a stable ID.
+        // A common way to get a unique ID is to use the output and input node IDs and their port names.
+        // Example: `conn-${connectionData.output_id}-${connectionData.output_class}-${connectionData.input_id}-${connectionData.input_class}`
+        // However, Drawflow's internal connection objects might have an 'id' or we might need to generate one.
+        // For now, let's use a placeholder ID generation. The key part is that it's unique for this session.
+        // Drawflow does not provide a direct 'id' for connections in the `connectionSelected` event parameter.
+        // We'll need to construct one using node IDs and port names for uniqueness.
+        const connectionId = `conn-${connectionData.output_id}-${connectionData.output_class}-${connectionData.input_id}-${connectionData.input_class}`;
+        currentSelectedConnectionId = connectionId;
+
+        selectedConnectionActionsContainer.style.display = 'inline';
+        updateConnectionActionIndicator(connectionId); // To be created
+
+        // Hide node actions & deselect node
+        selectedNodeActionsContainer.style.display = 'none';
+        nodeActionIndicator.textContent = '';
+        currentSelectedNodeId = null;
+        if (editor.selected_node) { // If a node was selected
+             // editor.deselectNode(editor.selected_node); // No public method, Drawflow usually handles this
+             editor.selected_node = null; // Force it if needed, though Drawflow might do this
+        }
+        console.log("Connection selected:", connectionData, "Assigned ID:", connectionId);
+    });
+
+    editor.on('connectionUnselected', function(connectionData) {
+        // console.log("Connection unselected:", connectionData); // The parameter might be true/false or the connection object
+        // Check if any connection is selected. If not, hide the UI.
+        // Drawflow might pass a boolean or the connection object.
+        // A more reliable check is if currentSelectedConnectionId is still valid or if editor.selected_connection is null
+        // Let's assume for now this event means no connection is selected.
+        currentSelectedConnectionId = null;
+        selectedConnectionActionsContainer.style.display = 'none';
+        connectionActionIndicator.textContent = '';
     });
 
 
@@ -261,6 +330,7 @@
     function loadFsmIntoDrawflow(fsmDefinition) {
        if (!fsmDefinition || !editor) return;
        editor.clearModuleView('Home'); // Clear again just in case
+       connectionActions = {}; // Clear any existing connection actions
        initialFsmStateNodeId = null; // Reset, as visual markers are also cleared or reapplied
 
        if (fsmDefinition && fsmDefinition.transitions && Array.isArray(fsmDefinition.transitions)) {
@@ -344,6 +414,17 @@
                    // Drawflow automatically assigns unique IDs to connections.
                    // Transition names from the definition are not directly represented on connections yet.
                    editor.addConnection(fromNodeId, toNodeId, 'output_1', 'input_1');
+
+                   // --- NEW LOGIC to load transition actions ---
+                   if (transition.actions && Array.isArray(transition.actions) && transition.actions.length > 0) {
+                       const outputPortClass = 'output_1'; // Assumption based on addConnection call
+                       const inputPortClass = 'input_1';  // Assumption based on addConnection call
+                       const connectionId = `conn-${fromNodeId}-${outputPortClass}-${toNodeId}-${inputPortClass}`;
+
+                       connectionActions[connectionId] = JSON.parse(JSON.stringify(transition.actions));
+                       console.log(`Loaded ${transition.actions.length} actions for transition from ${transition.from} to ${transition.to} (Connection ID: ${connectionId})`);
+                   }
+                   // --- END NEW LOGIC ---
                } else {
                    console.warn(`Could not create transition: ${transition.name}. Missing 'from' (${transition.from}) or 'to' (${transition.to}) node in Drawflow map.`);
                }
@@ -381,9 +462,22 @@
     const currentEditingActionTypeInput = document.getElementById('currentEditingActionType');
 
 
-    function openActionModal(actionType, existingAction = null, actionIndex = null) {
-        currentEditingActionTypeInput.value = actionType; // 'onEntry' or 'onExit'
-        actionModalTitle.textContent = `Configure ${actionType} Action`;
+    function openActionModal(contextType, existingAction = null, actionIndex = null) {
+        currentEditingActionTypeInput.value = contextType; // 'onEntry', 'onExit', or 'onTransition'
+
+        let baseTitle = "Configure Action";
+        if (currentSelectedNodeId && (contextType === 'onEntry' || contextType === 'onExit')) {
+            const node = editor.getNodeFromId(currentSelectedNodeId);
+            const nodeName = node ? node.data.name : currentSelectedNodeId;
+            baseTitle = `Configure ${contextType} for Node ${nodeName}`;
+        } else if (currentSelectedConnectionId && contextType === 'onTransition') {
+            // For transitions, a more descriptive name might be complex to get here (e.g., from-to states)
+            // So, using a generic title or the connection ID.
+            baseTitle = `Configure Actions for Transition (${currentSelectedConnectionId})`;
+        } else {
+             baseTitle = `Configure ${contextType} Action`; // Fallback
+        }
+        actionModalTitle.textContent = baseTitle;
 
         if (existingAction && typeof existingAction === 'object') {
             actionConfigForm.requestUrl.value = existingAction.request?.url || '';
@@ -399,7 +493,7 @@
             currentEditingActionIndexInput.value = ''; // Ensure no index when adding new
         }
 
-        loadActionsIntoModalList(actionType);
+        loadActionsIntoModalList(contextType); // Pass contextType
         actionConfigModal.style.display = 'block';
     }
 
@@ -410,12 +504,27 @@
         currentEditingActionTypeInput.value = '';
     }
 
-    function loadActionsIntoModalList(actionType) {
-        if (!currentSelectedNodeId) return;
-        const node = editor.getNodeFromId(currentSelectedNodeId);
-        if (!node || !node.data) return;
+    function loadActionsIntoModalList(contextType) {
+        let actions = [];
+        const actionContextName = currentEditingActionTypeInput.value; // Should be same as contextType
 
-        const actions = (actionType === 'onEntry' ? node.data.onEntryActions : node.data.onExitActions) || [];
+        if (actionContextName === 'onTransition' && currentSelectedConnectionId) {
+            actions = connectionActions[currentSelectedConnectionId] || [];
+        } else if ((actionContextName === 'onEntry' || actionContextName === 'onExit') && currentSelectedNodeId) {
+            const node = editor.getNodeFromId(currentSelectedNodeId);
+            if (node && node.data) {
+                actions = (actionContextName === 'onEntry' ? node.data.onEntryActions : node.data.onExitActions) || [];
+            } else {
+                console.error("Selected node not found for loading actions.");
+                currentActionsUl.innerHTML = '<li>Error: Selected node not found.</li>';
+                return;
+            }
+        } else {
+            console.warn("Cannot load actions: No valid node or connection selected for context:", actionContextName);
+            currentActionsUl.innerHTML = '<li>Select a node or transition to see its actions.</li>';
+            return;
+        }
+
         currentActionsUl.innerHTML = ''; // Clear list
 
         if (actions.length === 0) {
@@ -436,14 +545,14 @@
             editButton.textContent = 'Edit';
             editButton.style.marginLeft = '10px';
             editButton.onclick = () => {
-                openActionModal(actionType, action, index); // Re-open modal for editing this action
+                openActionModal(actionContextName, action, index); // Re-open modal for editing this action
             };
 
             const deleteButton = document.createElement('button');
             deleteButton.textContent = 'Delete';
             deleteButton.style.marginLeft = '5px';
             deleteButton.onclick = () => {
-                deleteAction(actionType, index);
+                deleteAction(actionContextName, index); // Pass context for deletion
             };
 
             li.textContent = summary;
@@ -453,20 +562,35 @@
         });
     }
 
-    function deleteAction(actionType, index) {
-        if (!currentSelectedNodeId) return;
-        const node = editor.getNodeFromId(currentSelectedNodeId);
-        if (!node || !node.data) return;
+    function deleteAction(contextType, index) {
+        const actionContextName = contextType; // Value from currentEditingActionTypeInput
 
-        const actionArrayName = actionType === 'onEntry' ? 'onEntryActions' : 'onExitActions';
-        let actions = node.data[actionArrayName] || [];
+        if (actionContextName === 'onTransition' && currentSelectedConnectionId) {
+            let actions = connectionActions[currentSelectedConnectionId] || [];
+            if (index >= 0 && index < actions.length) {
+                actions.splice(index, 1);
+                connectionActions[currentSelectedConnectionId] = actions; // Update the master list
+                updateConnectionActionIndicator(currentSelectedConnectionId);
+                loadActionsIntoModalList(actionContextName); // Refresh list in modal
+            }
+        } else if ((actionContextName === 'onEntry' || actionContextName === 'onExit') && currentSelectedNodeId) {
+            const node = editor.getNodeFromId(currentSelectedNodeId);
+            if (!node || !node.data) {
+                console.error("Selected node not found for deleting action.");
+                return;
+            }
+            const actionArrayName = actionContextName === 'onEntry' ? 'onEntryActions' : 'onExitActions';
+            let actions = node.data[actionArrayName] || [];
 
-        if (index >= 0 && index < actions.length) {
-            actions.splice(index, 1);
-            const updateData = { ...node.data, [actionArrayName]: actions };
-            editor.updateNodeDataFromId(currentSelectedNodeId, updateData);
-            updateActionIndicator(currentSelectedNodeId);
-            loadActionsIntoModalList(actionType); // Refresh list in modal
+            if (index >= 0 && index < actions.length) {
+                actions.splice(index, 1);
+                const updateData = { ...node.data, [actionArrayName]: actions };
+                editor.updateNodeDataFromId(currentSelectedNodeId, updateData);
+                updateActionIndicator(currentSelectedNodeId); // For nodes
+                loadActionsIntoModalList(actionContextName); // Refresh list in modal
+            }
+        } else {
+            console.warn("Cannot delete action: No valid node or connection selected for context:", actionContextName);
         }
     }
 
@@ -480,21 +604,36 @@
     }
 
     saveActionButton.onclick = function() {
-        if (!currentSelectedNodeId) {
-            displayFlashMessage('error', 'No node selected to save action to.');
-            return;
-        }
-        const node = editor.getNodeFromId(currentSelectedNodeId);
-        if (!node) {
-            displayFlashMessage('error', 'Selected node not found.');
-            return;
-        }
-
-        const actionType = currentEditingActionTypeInput.value; // 'onEntry' or 'onExit'
-        const actionArrayName = actionType === 'onEntry' ? 'onEntryActions' : 'onExitActions';
-
-        let actions = node.data[actionArrayName] || [];
+        const actionContextName = currentEditingActionTypeInput.value; // 'onEntry', 'onExit', or 'onTransition'
         const editingIndex = currentEditingActionIndexInput.value !== '' ? parseInt(currentEditingActionIndexInput.value) : null;
+        let targetObjectForActions; // Will be node.data or connectionActions
+        let actionsArrayName; // 'onEntryActions', 'onExitActions', or the connectionId for connectionActions
+        let currentId; // Node ID or Connection ID
+
+        if (actionContextName === 'onTransition' && currentSelectedConnectionId) {
+            currentId = currentSelectedConnectionId;
+            if (!connectionActions[currentId]) {
+                connectionActions[currentId] = [];
+            }
+            // For connections, the 'actions' are directly in connectionActions[currentId]
+            // So, actionsArrayName is not used to access a sub-property like in nodes.
+            // Instead, we'll operate directly on connectionActions[currentId]
+        } else if ((actionContextName === 'onEntry' || actionContextName === 'onExit') && currentSelectedNodeId) {
+            currentId = currentSelectedNodeId;
+            const node = editor.getNodeFromId(currentId);
+            if (!node) {
+                displayFlashMessage('error', 'Selected node not found.');
+                return;
+            }
+            targetObjectForActions = node.data; // Actions are stored in node.data
+            actionsArrayName = actionContextName === 'onEntry' ? 'onEntryActions' : 'onExitActions';
+            if (!targetObjectForActions[actionsArrayName]) {
+                targetObjectForActions[actionsArrayName] = [];
+            }
+        } else {
+            displayFlashMessage('error', 'No valid node or transition selected to save action to.');
+            return;
+        }
 
         const actionData = {
             type: "externalApi", // Currently only supporting this type
@@ -547,22 +686,36 @@
         if (actionData.request.body === null) delete actionData.request.body;
 
 
-        if (editingIndex !== null && editingIndex >= 0 && editingIndex < actions.length) {
-            actions[editingIndex] = actionData; // Update existing action
+        if (editingIndex !== null && editingIndex >= 0 && editingIndex < (actionContextName === 'onTransition' ? connectionActions[currentId].length : targetObjectForActions[actionsArrayName].length) ) {
+            if (actionContextName === 'onTransition') {
+                connectionActions[currentId][editingIndex] = actionData;
+            } else {
+                targetObjectForActions[actionsArrayName][editingIndex] = actionData;
+            }
         } else {
-            actions.push(actionData); // Add as new action
+            if (actionContextName === 'onTransition') {
+                connectionActions[currentId].push(actionData);
+            } else {
+                targetObjectForActions[actionsArrayName].push(actionData);
+            }
         }
 
-        const updateData = { ...node.data, [actionArrayName]: actions };
-        editor.updateNodeDataFromId(currentSelectedNodeId, updateData);
-        updateActionIndicator(currentSelectedNodeId);
+        if (actionContextName === 'onTransition') {
+            // For connections, data is in connectionActions map, not Drawflow node data
+            updateConnectionActionIndicator(currentId);
+        } else {
+            // For nodes, update Drawflow node data
+            const updateData = { ...targetObjectForActions }; // node.data is already targetObjectForActions
+            editor.updateNodeDataFromId(currentId, updateData);
+            updateActionIndicator(currentId);
+        }
 
         // If staying in modal to add more, just refresh list. Otherwise, close.
         // For now, let's clear the form for a new action and refresh the list.
         actionConfigForm.reset();
         currentEditingActionIndexInput.value = ''; // Ready for new action unless one is explicitly edited from list
-        loadActionsIntoModalList(actionType);
-        // displayFlashMessage('success', `Action saved for ${actionType} on node ${node.data.name || currentSelectedNodeId}.`);
+        loadActionsIntoModalList(actionContextName); // Refresh list in modal
+        // displayFlashMessage('success', `Action saved for ${actionContextName}.`);
         // For a less intrusive experience, don't close modal automatically, let user add more or close.
     };
 
@@ -582,6 +735,17 @@
         if (onEntryCount > 0) indicatorText += `onEntry (${onEntryCount}) `;
         if (onExitCount > 0) indicatorText += `onExit (${onExitCount})`;
         nodeActionIndicator.textContent = indicatorText.trim() ? `Actions: ${indicatorText}` : 'No actions';
+    }
+
+    function updateConnectionActionIndicator(connectionId) {
+        const indicator = document.getElementById('connectionActionIndicator');
+        if (!indicator) return;
+
+        if (connectionId && connectionActions[connectionId] && connectionActions[connectionId].length > 0) {
+            indicator.textContent = `Actions (${connectionActions[connectionId].length})`;
+        } else {
+            indicator.textContent = 'No actions';
+        }
     }
 
     document.getElementById("addStateButton").addEventListener("click", () => {
@@ -704,8 +868,11 @@
                        }
                    }
 
+                   const dfConnectionId = `conn-${nodeId}-${outputKey}-${conn.node}-${conn.input_class}`;
+                   let transitionToPush;
+
                    if (foundOriginalTransition) {
-                       newTransitionsFromGraph.push(foundOriginalTransition);
+                       transitionToPush = { ...foundOriginalTransition }; // Clone to add dfConnectionId
                    } else {
                        let newTransitionName = `from_${stateName}_to_${targetStateName}`;
                        if (connections.length > 1 || Object.keys(node.outputs).length > 1) {
@@ -717,17 +884,28 @@
                               loadedFsmTransitions.some(t => t.name === finalNewTransitionName)) { // check remaining unused originals too
                             finalNewTransitionName = `${newTransitionName}_${nameCounter++}`;
                        }
-
-                       newTransitionsFromGraph.push({
+                       transitionToPush = {
                            name: finalNewTransitionName,
                            from: stateName,
                            to: targetStateName
                            // Add other default properties for new transitions if any
-                       });
+                       };
                    }
+                   transitionToPush.dfConnectionId = dfConnectionId; // Store the drawflow connection ID
+                   newTransitionsFromGraph.push(transitionToPush);
                });
            }
        }
+
+       // Now, iterate newTransitionsFromGraph to add actions from connectionActions
+       newTransitionsFromGraph.forEach(transitionEntry => {
+           const dfConnId = transitionEntry.dfConnectionId;
+           if (dfConnId && connectionActions[dfConnId] && connectionActions[dfConnId].length > 0) {
+               transitionEntry.actions = JSON.parse(JSON.stringify(connectionActions[dfConnId]));
+           }
+           delete transitionEntry.dfConnectionId; // Clean up temporary property
+       });
+
        fsmJson.transitions = newTransitionsFromGraph;
 
        // The check for initial state being set if states exist is already done above.

@@ -57,7 +57,7 @@ The `transitions` array defines all valid state changes. Each element in the arr
     *   `from` (string or array of strings, required): The name of the state (or an array of state names) from which this transition is allowed.
     *   `to` (string, required): The name of the state to which the FSM will move after this transition.
     *   `action` (action object, optional): A single action object to be executed during the transition. If `actions` is also present, `action` is typically executed before the `actions` array.
-    *   `actions` (array of action objects, optional): An array of action objects to be executed sequentially during the transition.
+    *   `actions` (array of action objects, optional): An array of action objects to be executed sequentially during the transition. The graphical editor interface now provides full support for defining and managing these actions for each transition directly on the visual editor.
     *   *(Note: The underlying `javascript-state-machine` library also supports a `if` property for conditional transitions, which could be a more advanced feature.)*
 
 *   **Example:**

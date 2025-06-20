@@ -37,7 +37,7 @@ This is the primary interface for visually creating and editing FSMs.
 *   **Overview:**
     *   **Graph Visualization (Left Pane):** Displays a real-time `d3-graphviz` rendering of the FSM's structure (states and transitions) based on its current definition. This view is read-only but updates as you make changes or reload.
     *   **Graphical Editor (Right Pane - Drawflow):** An interactive workspace to create, arrange, and connect state nodes.
-    *   **Action Buttons:** Above the Drawflow area, buttons for adding states, setting the initial state, and configuring actions for selected states.
+    *   **Action Buttons:** Above the Drawflow area, buttons for adding states, setting the initial state, and configuring actions for selected states. When a transition (connection between states) is selected, an 'Add/Edit Actions' button and an action indicator for that transition will appear.
     *   **Raw JSON Definition:** A read-only textarea at the bottom shows the complete JSON definition of the FSM, which updates upon saving.
 
 *   **Creating States:**
@@ -50,29 +50,35 @@ This is the primary interface for visually creating and editing FSMs.
 *   **Setting Initial State:**
     *   Select a state node in the Drawflow editor by clicking on it.
     *   Click the "Set Selected as Initial" button. The selected node will be marked (e.g., with a border) as the initial state.
-*   **Configuring Actions (on State Entry/Exit):**
-    *   **Select a State:** Click on a state node in the Drawflow editor.
-    *   **Action Buttons:** Once a node is selected, "Add onEntry Action" and "Add onExit Action" buttons become available.
-    *   **Action Indicator:** Text next to these buttons (e.g., "Actions: onEntry (1)") indicates how many actions of each type are configured for the selected node.
-    *   **Opening the Modal:** Clicking "Add onEntry Action" or "Add onExit Action" opens the **Action Configuration Modal**.
+*   **Selecting Transitions and Configuring Actions:**
+    *   Transitions (the lines connecting states) can be selected by clicking on them.
+    *   Once a transition is selected, an 'Add/Edit Actions' button becomes available. Similar to state actions, an indicator next to this button will show the count of actions configured for this specific transition.
+    *   Clicking the 'Add/Edit Actions' button for a selected transition opens the **Action Configuration Modal**, allowing you to define a sequence of actions that will execute when that specific transition occurs.
+*   **Configuring Actions (for States and Transitions):**
+    *   Actions can be configured to occur when a state is entered (`onEntry`), when a state is exited (`onExit`), or when a specific transition is taken.
+    *   **Select a State or Transition:** Click on a state node or a transition line in the Drawflow editor.
+    *   **Action Buttons:** Depending on the selection, relevant action buttons become available (e.g., "Add onEntry Action" for a state, or "Add/Edit Actions" for a transition).
+    *   **Action Indicator:** Text next to these buttons (e.g., "Actions: onEntry (1)" or "Actions (2)") indicates how many actions are configured for the selected item and context.
+    *   **Opening the Modal:** Clicking the appropriate action button opens the **Action Configuration Modal**.
     *   **Action Configuration Modal:**
-        *   **Action Type:** A dropdown to select either "External API Call" (`externalApi`) or "ARI Action" (`ari`). The fields below change based on this selection.
+        *   **Modal Title:** The title of the modal will indicate whether you are configuring actions for a state's `onEntry`/`onExit` hook or for a selected transition (e.g., 'Configure onEntry for Node StateA' or 'Configure Actions for Transition conn-1-output_1-2-input_1').
+        *   **Action Type (Legacy - may be removed/simplified):** A dropdown to select either "External API Call" (`externalApi`) or "ARI Action" (`ari`). Currently, the graphical editor primarily supports `externalApi` type actions. For `ari` actions, manual JSON editing might be required. The fields below change based on this selection.
         *   **External API Fields:**
             *   `Request URL`: URL of the external API. Supports placeholders.
             *   `Request Method`: GET, POST, PUT, DELETE, PATCH.
             *   `Headers (JSON format)`: e.g., `{ "Content-Type": "application/json" }`. Supports placeholders.
             *   `Body (JSON format)`: Request payload. Supports placeholders.
             *   `Store Response As`: FSM variable name to store the API response.
-        *   **ARI Fields:**
+        *   **ARI Fields (Primarily for manual JSON editing, limited UI support for creation):**
             *   `ARI Operation`: Dropdown of available operations (e.g., `answer`, `hangup`, `playAudio`, `getData`, `originateCall`).
             *   `Parameters (JSON format)`: Parameters for the chosen ARI operation. Supports placeholders.
             *   `Store Result As`: FSM variable name to store the result of the ARI operation.
         *   **Common Action Fields (for both types):**
             *   `On Success Transition`: Optional FSM transition name if the action succeeds.
             *   `On Failure Transition`: Optional FSM transition name if the action fails.
-        *   **Actions List:** The modal displays a list of actions already configured for the current hook (e.g., all `onEntry` actions for the selected state). Each listed action has "Edit" and "Delete" buttons.
+        *   **Actions List:** The modal displays a list of actions already configured for the current context (e.g., all `onEntry` actions for the selected state, or all actions for the selected transition). Each listed action has "Edit" and "Delete" buttons.
         *   **Saving/Canceling:**
-            *   "Save Action": Adds the new action or updates the currently edited one in the node's data. The form clears for potentially adding another action.
+            *   "Save Action": Adds the new action or updates the currently edited one in the selected item's data (node data for state actions, internal `connectionActions` map for transition actions). The form clears for potentially adding another action.
             *   "Cancel" / Close button (X): Closes the modal without saving the current form's changes.
 *   **Saving the FSM:**
     *   Click the "Save Graphical Definition" button. This converts the Drawflow diagram and associated action data into the FSM JSON format and saves it to the server. The graph visualization and raw JSON text area will update.
