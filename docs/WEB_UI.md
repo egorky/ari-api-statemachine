@@ -38,7 +38,7 @@ This is the primary interface for visually creating and editing FSMs.
     *   **Graph Visualization (Left Pane):** Displays a real-time `d3-graphviz` rendering of the FSM's structure (states and transitions) based on its current definition. This view is read-only but updates as you make changes or reload.
     *   **Graphical Editor (Right Pane - Drawflow):** An interactive workspace to create, arrange, and connect state nodes.
     *   **Action Buttons:** Above the Drawflow area, buttons for adding states, setting the initial state, and configuring actions for selected states. When a transition (connection between states) is selected, an 'Add/Edit Actions' button and an action indicator for that transition will appear.
-    *   **Raw JSON Definition:** A read-only textarea at the bottom shows the complete JSON definition of the FSM, which updates upon saving.
+    *   **Raw JSON Definition:** A read-only textarea at the bottom shows the complete JSON definition of the FSM. This view updates when changes made through the graphical interface are saved via the "Save Graphical Definition" button. **Note:** This textarea itself is read-only. To directly edit the FSM's JSON content, you should use the "Text-Based FSM Editor" (accessible via the URL `/fsm/edit/:machineId`, where `:machineId` is your FSM's ID) which provides a save mechanism, or by directly editing the corresponding `.json` file on the server if you have filesystem access.
 
 *   **Creating States:**
     *   Click the "Add State Node" button. A new state node appears in the Drawflow editor with a default name (e.g., "State1").

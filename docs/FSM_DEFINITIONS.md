@@ -119,7 +119,8 @@ Used for making HTTP/HTTPS calls to external services.
 Used for interacting with Asterisk via the Asterisk REST Interface (ARI).
 
 *   `type: "ari"`
-*   `operation` (string, required): The name of the ARI operation to perform. Supported operations include:
+*   `operation` (string, required): The name of the ARI operation to perform. This is not an exhaustive list, but common operations supported by the `ariService.js` wrapper include:
+    For a comprehensive list of all possible ARI operations, refer to the official [Asterisk ARI Documentation](https://wiki.asterisk.org/wiki/display/AST/Asterisk+REST+Interface). The operations available through this FSM action are those implemented in the application's `ariService.js`.
     *   `answer`: Answer the current channel.
     *   `hangup`: Hangup the current channel.
     *   `playAudio`: Play audio on the channel.
@@ -127,6 +128,13 @@ Used for interacting with Asterisk via the Asterisk REST Interface (ARI).
     *   `setVariable`: Set a channel variable.
     *   `getData`: Play a prompt (for DTMF collection). Note: Actual DTMF collection is handled by FSM transitions reacting to DTMF events.
     *   `originateCall`: Originate a new call.
+    *   `createBridge`: Creates a new bridge.
+    *   `addChannelToBridge`: Adds a channel to a bridge.
+    *   `startMoh`: Starts music on hold on a channel or bridge.
+    *   `stopMoh`: Stops music on hold.
+    *   `recordSnoop`: Start snoop recording on a channel.
+    *   `stopSnoop`: Stop snoop recording on a channel.
+    *   `(Note: The exact list of operations directly usable here depends on their implementation in `src/services/ariService.js`. This list reflects common ARI capabilities.)`
 *   `parameters` (object, optional): Key-value pairs specific to the chosen `operation`. Values support placeholder replacement.
     *   Examples:
         *   For `playAudio`: `{ "media": "sound:your-prompt" }`
@@ -193,6 +201,96 @@ This object can be defined at the root of the FSM JSON to pre-configure named ex
     }
     ```
     The `stateMachineManager` will look up "fetchUserDetails" in `fsm.externalApis` and use its configuration. Placeholders in the named config will be resolved against the current FSM instance and the payload passed to the action.
+
+## Custom JavaScript Functions (`methods` Object and String Actions)
+
+Beyond the declarative action objects (`externalApi`, `ari`), you can define and use custom JavaScript functions for more complex logic within your FSM. This is achieved through the top-level `methods` object in your FSM definition and by specifying a function name as a string where an action object or array of actions would normally go.
+
+### Defining Custom Functions in `methods`
+
+The `methods` object at the root of your FSM definition allows you to define named JavaScript functions. These functions are loaded with the FSM and can be called during its lifecycle.
+
+*   **Structure:**
+    ```json
+    "methods": {
+      "myCustomLog": "function(event, fsm, actionArgs) { console.log('FSM ' + fsm.id + ' in state ' + fsm.state + ', event: ' + event.name + ', args: ' + JSON.stringify(actionArgs)); }",
+      "anotherFunction": "function(event, fsm) { fsm.someCustomProperty = (fsm.someCustomProperty || 0) + 1; console.log('Custom property incremented to: ' + fsm.someCustomProperty); }"
+    }
+    ```
+*   **Important Notes:**
+    *   Functions must be provided as **strings** containing valid JavaScript function code.
+    *   These functions are executed in the Node.js environment on the server where the FSM engine runs.
+    *   They are `eval()`-ed (or run in a similar manner using Node.js's `vm` module) when the FSM definition is loaded. Ensure the code is safe and self-contained. Avoid syntax errors, as they can prevent the FSM from loading correctly.
+
+### Invoking Custom Functions as Actions
+
+Once defined in the `methods` object, these functions can be invoked by their name (as a string) in any place where an action is expected:
+*   State `onEntry` or `onExit` hooks.
+*   Transition `action` or `actions` properties.
+
+*   **Example of Invocation:**
+    ```json
+    "states": {
+      "loggingState": {
+        "onEntry": "myCustomLog" // Invokes the function named "myCustomLog"
+      },
+      "processingState": {
+        "onExit": [
+          { "type": "externalApi", "request": "someApiCall" }, // Can be mixed with other actions
+          "anotherFunction" // Invokes "anotherFunction"
+        ]
+      }
+    },
+    "transitions": [
+      {
+        "name": "doSomethingComplex",
+        "from": "start",
+        "to": "end",
+        "actions": ["myCustomLog", "anotherFunction"]
+      }
+    ]
+    ```
+*   If a string action is encountered, the FSM executor will look for a method with that name in the FSM's `methods` configuration.
+
+### Execution Context and Arguments
+
+When a custom JavaScript function is executed as an action:
+
+*   `this`: Inside the function, `this` refers to the FSM instance itself. You can access and modify FSM properties (e.g., `this.state`, `this.someCustomData = 'value'`).
+*   **Arguments:** The function is typically called with the following arguments:
+    1.  `event` (object): The lifecycle event object from the underlying state machine library. This contains details about the event that triggered the action, such as:
+        *   `name`: Name of the transition/event.
+        *   `from`: Original state.
+        *   `to`: Target state.
+        *   Any additional arguments passed when `fsm.doTransition('eventName', arg1, arg2)` was called. These will be available as `event.args[0]`, `event.args[1]`, etc.
+    2.  `fsm` (object): A reference to the FSM instance itself (same as `this`).
+    3.  `actionArgs` (object, optional): If the custom function is part of an action array that was invoked with specific arguments by the `stateMachineManager` (currently, this is more of a potential future enhancement or internal mechanism rather than a user-configurable feature for string actions directly). For most practical purposes with string actions, rely on `event.args` for payload.
+
+*   **Example with `this` and `event`:**
+    ```javascript
+    // In "methods" object:
+    "checkUserRole": "function(event, fsm) {
+      if (fsm.userData && fsm.userData.role === 'admin') {
+        console.log('Admin user detected in state: ' + this.state);
+      } else {
+        console.log('User role: ' + (fsm.userData ? fsm.userData.role : 'unknown'));
+        // To potentially cancel a transition from within an onBefore hook (more advanced):
+        // if (event.name === 'someTransition' && !isAdmin) return false;
+      }
+    }"
+
+    // Invocation:
+    // "onEntry": "checkUserRole"
+    ```
+
+### Use Cases
+
+*   Complex synchronous logic that is difficult to express with declarative actions.
+*   Modifying FSM instance data dynamically.
+*   Logging with specific formatting or to external systems (though `externalApi` might be better for the latter if it involves I/O).
+*   Implementing conditional logic that might be too complex for simple `onSuccess`/`onFailure` transitions.
+
+**Security Note:** Since these functions are executed on the server, be cautious about the code defined in the FSM JSON, especially if these definitions can be uploaded or modified by less trusted users.
 
 ## Example FSM Definitions
 
