@@ -85,13 +85,4 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: "Something broke on the server!"});
 });
 
-// --- Initialize ARI Service ---
-// The ariService.connectAri function itself checks for necessary environment variables
-// and will only proceed if they are set. It also handles reconnections.
-if (process.env.DISABLE_ARI !== 'true') { // Make it disable-able via .env
-    ariService.connectAri();
-} else {
-    console.log("ARI service is disabled via DISABLE_ARI flag in .env");
-}
-
 module.exports = app;
