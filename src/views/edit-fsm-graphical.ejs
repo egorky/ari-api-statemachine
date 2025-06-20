@@ -471,36 +471,70 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function openActionModal(contextType, existingAction = null, actionIndex = null) {
         currentEditingActionTypeInput.value = contextType; // 'onEntry', 'onExit', or 'onTransition'
+        const actionContextName = contextType;
 
+        let hookActions;
+        let isStringFunctionContext = false;
+
+        if (actionContextName === 'onTransition' && currentSelectedConnectionId) {
+            hookActions = connectionActions[currentSelectedConnectionId];
+        } else if ((actionContextName === 'onEntry' || actionContextName === 'onExit') && currentSelectedNodeId) {
+            const node = editor.getNodeFromId(currentSelectedNodeId);
+            if (node && node.data) {
+                const actionArrayName = actionContextName === 'onEntry' ? 'onEntryActions' : 'onExitActions';
+                hookActions = node.data[actionArrayName];
+            }
+        }
+
+        if (typeof hookActions === 'string') {
+            isStringFunctionContext = true;
+        }
+
+        // Adjust modal title
         let baseTitle = "Configure Action";
-        if (currentSelectedNodeId && (contextType === 'onEntry' || contextType === 'onExit')) {
+        if (currentSelectedNodeId && (actionContextName === 'onEntry' || actionContextName === 'onExit')) {
             const node = editor.getNodeFromId(currentSelectedNodeId);
             const nodeName = node ? node.data.name : currentSelectedNodeId;
-            baseTitle = `Configure ${contextType} for Node ${nodeName}`;
-        } else if (currentSelectedConnectionId && contextType === 'onTransition') {
-            // For transitions, a more descriptive name might be complex to get here (e.g., from-to states)
-            // So, using a generic title or the connection ID.
+            baseTitle = `Configure ${actionContextName} for Node ${nodeName}`;
+        } else if (currentSelectedConnectionId && actionContextName === 'onTransition') {
             baseTitle = `Configure Actions for Transition (${currentSelectedConnectionId})`;
         } else {
-             baseTitle = `Configure ${contextType} Action`; // Fallback
+             baseTitle = `Configure ${actionContextName} Action`; // Fallback
         }
-        actionModalTitle.textContent = baseTitle;
+        actionModalTitle.textContent = isStringFunctionContext ? `${baseTitle} (Custom Function - View Only)` : baseTitle;
 
-        if (existingAction && typeof existingAction === 'object') {
-            actionConfigForm.requestUrl.value = existingAction.request?.url || '';
-            actionConfigForm.requestMethod.value = existingAction.request?.method || 'GET';
-            actionConfigForm.headers.value = existingAction.request?.headers ? JSON.stringify(existingAction.request.headers, null, 2) : '';
-            actionConfigForm.body.value = existingAction.request?.body ? JSON.stringify(existingAction.request.body, null, 2) : '';
-            actionConfigForm.storeResponseAs.value = existingAction.storeResponseAs || '';
-            actionConfigForm.onSuccess.value = existingAction.onSuccess || '';
-            actionConfigForm.onFailure.value = existingAction.onFailure || '';
-            currentEditingActionIndexInput.value = actionIndex !== null ? actionIndex.toString() : '';
+
+        // Enable/Disable form fields based on context
+        const formElements = [
+            actionConfigForm.requestUrl, actionConfigForm.requestMethod,
+            actionConfigForm.headers, actionConfigForm.body,
+            actionConfigForm.storeResponseAs, actionConfigForm.onSuccess, actionConfigForm.onFailure
+        ];
+
+        if (isStringFunctionContext) {
+            actionConfigForm.reset();
+            formElements.forEach(el => el.disabled = true);
+            saveActionButton.disabled = true;
         } else {
-            actionConfigForm.reset(); // Clear form for new action
-            currentEditingActionIndexInput.value = ''; // Ensure no index when adding new
+            formElements.forEach(el => el.disabled = false);
+            saveActionButton.disabled = false;
+
+            if (existingAction && typeof existingAction === 'object') {
+                actionConfigForm.requestUrl.value = existingAction.request?.url || '';
+                actionConfigForm.requestMethod.value = existingAction.request?.method || 'GET';
+                actionConfigForm.headers.value = existingAction.request?.headers ? JSON.stringify(existingAction.request.headers, null, 2) : '';
+                actionConfigForm.body.value = existingAction.request?.body ? JSON.stringify(existingAction.request.body, null, 2) : '';
+                actionConfigForm.storeResponseAs.value = existingAction.storeResponseAs || '';
+                actionConfigForm.onSuccess.value = existingAction.onSuccess || '';
+                actionConfigForm.onFailure.value = existingAction.onFailure || '';
+                currentEditingActionIndexInput.value = actionIndex !== null ? actionIndex.toString() : '';
+            } else {
+                actionConfigForm.reset(); // Clear form for new action
+                currentEditingActionIndexInput.value = ''; // Ensure no index when adding new
+            }
         }
 
-        loadActionsIntoModalList(contextType); // Pass contextType
+        loadActionsIntoModalList(actionContextName); // Pass contextType, which is actionContextName
         actionConfigModal.style.display = 'block';
     }
 
@@ -512,15 +546,17 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function loadActionsIntoModalList(contextType) {
-        let actions = [];
-        const actionContextName = currentEditingActionTypeInput.value; // Should be same as contextType
+        let hookActions;
+        let isStringFunctionContext = false;
+        const actionContextName = contextType; // Value from currentEditingActionTypeInput or passed param
 
         if (actionContextName === 'onTransition' && currentSelectedConnectionId) {
-            actions = connectionActions[currentSelectedConnectionId] || [];
+            hookActions = connectionActions[currentSelectedConnectionId];
         } else if ((actionContextName === 'onEntry' || actionContextName === 'onExit') && currentSelectedNodeId) {
             const node = editor.getNodeFromId(currentSelectedNodeId);
             if (node && node.data) {
-                actions = (actionContextName === 'onEntry' ? node.data.onEntryActions : node.data.onExitActions) || [];
+                const actionArrayName = actionContextName === 'onEntry' ? 'onEntryActions' : 'onExitActions';
+                hookActions = node.data[actionArrayName];
             } else {
                 console.error("Selected node not found for loading actions.");
                 currentActionsUl.innerHTML = '<li>Error: Selected node not found.</li>';
@@ -532,7 +568,32 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        if (typeof hookActions === 'string') {
+            isStringFunctionContext = true;
+        }
+
         currentActionsUl.innerHTML = ''; // Clear list
+        const formElements = [
+            actionConfigForm.requestUrl, actionConfigForm.requestMethod,
+            actionConfigForm.headers, actionConfigForm.body,
+            actionConfigForm.storeResponseAs, actionConfigForm.onSuccess, actionConfigForm.onFailure
+        ];
+
+        if (isStringFunctionContext) {
+            const li = document.createElement('li');
+            li.textContent = 'Custom function defined (Edit in Raw JSON). No new actions can be added via UI if a custom function string is present.';
+            li.style.fontStyle = 'italic';
+            currentActionsUl.appendChild(li);
+            saveActionButton.disabled = true;
+            formElements.forEach(el => el.disabled = true); // Safeguard: disable form fields
+            return;
+        } else {
+            // Ensure form is enabled if not string context (e.g. if it was previously disabled)
+            saveActionButton.disabled = false;
+            formElements.forEach(el => el.disabled = false);
+        }
+
+        const actions = hookActions || []; // Now hookActions is guaranteed to be an array or undefined
 
         if (actions.length === 0) {
             const li = document.createElement('li');

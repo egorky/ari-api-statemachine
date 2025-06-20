@@ -77,6 +77,9 @@ This is the primary interface for visually creating and editing FSMs.
             *   `On Success Transition`: Optional FSM transition name if the action succeeds.
             *   `On Failure Transition`: Optional FSM transition name if the action fails.
         *   **Actions List:** The modal displays a list of actions already configured for the current context (e.g., all `onEntry` actions for the selected state, or all actions for the selected transition). Each listed action has "Edit" and "Delete" buttons.
+        *   **Handling Custom Function Strings:**
+            *   If a state's `onEntry` or `onExit` hook (or a transition's `actions` property, though less common for strings) is defined in the raw JSON as a direct JavaScript function string (e.g., `"onEntry": "function() { console.log(\"Test\"); }"`) instead of an array of action objects, the Action Configuration Modal will display a message like "Custom function defined (Edit in Raw JSON)" in place of the actions list.
+            *   In such cases, the modal's form fields for defining a new action (URL, method, etc.) will be disabled for that specific hook, as will the "Save Action" button. This is because the modal is designed for creating and editing structured action objects. To modify or replace the custom function string, or to change the hook to use object-based actions, you'll need to use the Text-Based FSM Editor or edit the JSON file directly.
         *   **Saving/Canceling:**
             *   "Save Action": Adds the new action or updates the currently edited one in the selected item's data (node data for state actions, internal `connectionActions` map for transition actions). The form clears for potentially adding another action.
             *   "Cancel" / Close button (X): Closes the modal without saving the current form's changes.
