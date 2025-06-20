@@ -62,24 +62,29 @@ This is the primary interface for visually creating and editing FSMs.
     *   **Opening the Modal:** Clicking the appropriate action button opens the **Action Configuration Modal**.
     *   **Action Configuration Modal:**
         *   **Modal Title:** The title of the modal will indicate whether you are configuring actions for a state's `onEntry`/`onExit` hook or for a selected transition (e.g., 'Configure onEntry for Node StateA' or 'Configure Actions for Transition conn-1-output_1-2-input_1').
-        *   **Action Type (Legacy - may be removed/simplified):** A dropdown to select either "External API Call" (`externalApi`) or "ARI Action" (`ari`). Currently, the graphical editor primarily supports `externalApi` type actions. For `ari` actions, manual JSON editing might be required. The fields below change based on this selection.
-        *   **External API Fields:**
+        *   **Action Type:** A dropdown to select the type of action to configure. The fields shown below will change based on this selection:
+            *   `External API`: For making HTTP/HTTPS calls to external services.
+            *   `ARI Operation`: For interacting with Asterisk via the Asterisk REST Interface (ARI).
+        *   **External API Fields:** (Displayed when "External API" is selected as Action Type)
             *   `Request URL`: URL of the external API. Supports placeholders.
             *   `Request Method`: GET, POST, PUT, DELETE, PATCH.
             *   `Headers (JSON format)`: e.g., `{ "Content-Type": "application/json" }`. Supports placeholders.
             *   `Body (JSON format)`: Request payload. Supports placeholders.
             *   `Store Response As`: FSM variable name to store the API response.
-        *   **ARI Fields (Primarily for manual JSON editing, limited UI support for creation):**
-            *   `ARI Operation`: Dropdown of available operations (e.g., `answer`, `hangup`, `playAudio`, `getData`, `originateCall`).
-            *   `Parameters (JSON format)`: Parameters for the chosen ARI operation. Supports placeholders.
-            *   `Store Result As`: FSM variable name to store the result of the ARI operation.
+        *   **ARI Operation Fields:** (Displayed when "ARI Operation" is selected as Action Type)
+            *   `ARI Operation`: A dropdown list of available ARI operations (e.g., `answer`, `hangup`, `playAudio`).
+            *   `Parameters (JSON format)`: A textarea for providing parameters for the chosen ARI operation, in JSON format (e.g., `{ "media": "sound:your-prompt" }`). Supports placeholders.
+            *   `Store Result As`: An FSM variable name where the result of the ARI operation will be stored (if applicable).
         *   **Common Action Fields (for both types):**
             *   `On Success Transition`: Optional FSM transition name if the action succeeds.
             *   `On Failure Transition`: Optional FSM transition name if the action fails.
         *   **Actions List:** The modal displays a list of actions already configured for the current context (e.g., all `onEntry` actions for the selected state, or all actions for the selected transition). Each listed action has "Edit" and "Delete" buttons.
         *   **Handling Custom Function Strings:**
-            *   If a state's `onEntry` or `onExit` hook (or a transition's `actions` property, though less common for strings) is defined in the raw JSON as a direct JavaScript function string (e.g., `"onEntry": "function() { console.log(\"Test\"); }"`) instead of an array of action objects, the Action Configuration Modal will display a message like "Custom function defined (Edit in Raw JSON)" in place of the actions list.
-            *   In such cases, the modal's form fields for defining a new action (URL, method, etc.) will be disabled for that specific hook, as will the "Save Action" button. This is because the modal is designed for creating and editing structured action objects. To modify or replace the custom function string, or to change the hook to use object-based actions, you'll need to use the Text-Based FSM Editor or edit the JSON file directly.
+            *   If a state's `onEntry` or `onExit` hook, or a transition's `actions` property, is defined in the raw FSM JSON as a string (representing a custom JavaScript function name that should be available to the FSM execution environment via `methods` in the FSM definition) instead of an array of action objects, the Action Configuration Modal will adapt its display.
+            *   The modal title will change to "View Custom Function (Edit in Raw JSON)".
+            *   The list of actions within the modal will display a message like "Custom function defined (Edit in Raw JSON). No new actions can be added via UI if a custom function string is present."
+            *   In this scenario, the form fields for defining a new structured action (like URL, method, etc.) will be disabled, as will the "Save Action" button for that specific hook.
+            *   To modify or replace the custom function string, or to change the hook to use object-based actions, you will need to edit the FSM's raw JSON definition directly (e.g., via the Text-Based FSM Editor or by modifying the `.json` file).
         *   **Saving/Canceling:**
             *   "Save Action": Adds the new action or updates the currently edited one in the selected item's data (node data for state actions, internal `connectionActions` map for transition actions). The form clears for potentially adding another action.
             *   "Cancel" / Close button (X): Closes the modal without saving the current form's changes.
@@ -87,6 +92,15 @@ This is the primary interface for visually creating and editing FSMs.
     *   Click the "Save Graphical Definition" button. This converts the Drawflow diagram and associated action data into the FSM JSON format and saves it to the server. The graph visualization and raw JSON text area will update.
 *   **Reloading Data:**
     *   Click "Reload Graph". This re-fetches the FSM definition from the server, updates the raw JSON view, re-renders the d3-graphviz visualization, and reloads the definition into the Drawflow editor (preserving layout and actions).
+*   **Global List of Actions:**
+    *   Below the "Raw JSON Definition" area, there's a section titled "All Defined Actions (Read-Only)".
+    *   This feature provides a consolidated, read-only view of every action configured within the entire FSM definition. This includes `onEntry` and `onExit` actions for all states, as well as actions defined for all transitions.
+    *   Click the "Load/Refresh All Actions" button to populate or update this list. The list is also automatically populated when the FSM data is initially loaded or reloaded.
+    *   Each action in the list is displayed with:
+        *   A sequential number.
+        *   The context (e.g., "[State: idle - onEntry]", "[Transition: process_payment (from checkout to completed)]").
+        *   A summary of the action (e.g., "Custom Function: handlePayment", "ARI - Op: playAudio", "API - POST https://api.example.com/submit...").
+    *   This view is helpful for quickly understanding all automated operations the FSM performs without needing to click through each state and transition individually in the editor.
 
 ## Text-Based FSM Editor (`/fsm/edit/:machineId`)
 

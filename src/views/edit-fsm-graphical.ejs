@@ -35,6 +35,16 @@
             <h3>Raw JSON Definition</h3>
             <textarea id="fsmJsonDefinition" rows="10" style="width: 100%; font-family: monospace;" readonly></textarea>
         </div>
+
+        <div class="form-section" style="margin-top: 20px;">
+            <h3>All Defined Actions (Read-Only)</h3>
+            <button id="viewAllActionsButton" style="margin-bottom: 10px;">Load/Refresh All Actions</button>
+            <div id="allActionsListContainer" style="max-height: 300px; overflow-y: auto; border: 1px solid #eee; padding: 10px; background-color: #fff;">
+                <ul id="allActionsListUl" style="list-style-type: none; padding-left: 0;">
+                    <!-- Actions will be listed here -->
+                </ul>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -306,6 +316,87 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function displayAllFsmActions() {
+        if (!currentFsmDefinition || Object.keys(currentFsmDefinition).length === 0) {
+            allActionsListUl.innerHTML = '<li>No FSM definition loaded or definition is empty. Click "Reload Graph" or save a definition.</li>';
+            return;
+        }
+
+        allActionsListUl.innerHTML = ''; // Clear previous list
+        let actionCounter = 0;
+
+        // Helper to format and add action to list
+        function addActionToList(action, context) {
+            actionCounter++;
+            const li = document.createElement('li');
+            li.style.marginBottom = '5px';
+            li.style.paddingBottom = '5px';
+            li.style.borderBottom = '1px dashed #eee';
+
+            let summary;
+            if (typeof action === 'string') {
+                summary = `Custom Function: "${action}"`;
+            } else if (action.type === 'ari') {
+                summary = `ARI - Op: ${action.operation || 'N/A'}`;
+                if (action.parameters && Object.keys(action.parameters).length > 0) {
+                    summary += `, Params: ${JSON.stringify(action.parameters).substring(0, 50)}...`;
+                }
+            } else if (action.type === 'externalApi') {
+                summary = `API - ${action.request?.method || 'GET'} ${action.request?.url?.substring(0,50) || '(no URL)'}...`;
+            } else {
+                summary = `Unknown type: ${action.type || 'N/A'} (Raw: ${JSON.stringify(action).substring(0,50)}...)`;
+            }
+            li.textContent = `${actionCounter}. [${context}] ${summary}`;
+            allActionsListUl.appendChild(li);
+        }
+
+        // 1. State Actions (onEntry, onExit)
+        if (currentFsmDefinition.states) {
+            for (const stateName in currentFsmDefinition.states) {
+                const stateConfig = currentFsmDefinition.states[stateName];
+                if (stateConfig) {
+                    if (stateConfig.onEntry) {
+                        if (typeof stateConfig.onEntry === 'string') {
+                            addActionToList(stateConfig.onEntry, `State: ${stateName} - onEntry`);
+                        } else if (Array.isArray(stateConfig.onEntry)) {
+                            stateConfig.onEntry.forEach(act => addActionToList(act, `State: ${stateName} - onEntry`));
+                        }
+                    }
+                    if (stateConfig.onExit) {
+                        if (typeof stateConfig.onExit === 'string') {
+                            addActionToList(stateConfig.onExit, `State: ${stateName} - onExit`);
+                        } else if (Array.isArray(stateConfig.onExit)) {
+                            stateConfig.onExit.forEach(act => addActionToList(act, `State: ${stateName} - onExit`));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Transition Actions (action, actions)
+        if (currentFsmDefinition.transitions && Array.isArray(currentFsmDefinition.transitions)) {
+            currentFsmDefinition.transitions.forEach(transition => {
+                const contextPrefix = `Transition: ${transition.name || 'Unnamed'} (from ${transition.from} to ${transition.to})`;
+                // Standard FSMs might have a single 'action' or an array 'actions'
+                // The graphical editor currently saves into 'actions' array.
+                // This code handles both for robustness with manually edited JSON.
+                if (transition.action && typeof transition.action === 'object') { // Single action object
+                    addActionToList(transition.action, contextPrefix);
+                } else if (typeof transition.action === 'string') { // Single action string
+                     addActionToList(transition.action, contextPrefix);
+                }
+
+                if (transition.actions && Array.isArray(transition.actions)) { // Array of action objects/strings
+                    transition.actions.forEach(act => addActionToList(act, contextPrefix));
+                }
+            });
+        }
+
+        if (actionCounter === 0) {
+            allActionsListUl.innerHTML = '<li>No actions found in the FSM definition.</li>';
+        }
+    }
+
     async function loadInitialData() {
         try {
             editor.clear(); // Clear editor at the start
@@ -318,8 +409,10 @@ document.addEventListener('DOMContentLoaded', function() {
             // Now load this definition into Drawflow
             if (currentFsmDefinition && Object.keys(currentFsmDefinition).length > 0) {
                 loadFsmIntoDrawflow(currentFsmDefinition); // This function will be defined next
+                displayAllFsmActions(); // Populate the all actions list
             } else {
                 console.log("No FSM definition to load into Drawflow, or definition is empty.");
+                allActionsListUl.innerHTML = '<li>No FSM definition loaded. Please save or reload.</li>'; // Update actions list too
                 // Editor is already clear, user starts with a blank canvas.
             }
 
@@ -468,6 +561,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const currentEditingActionIndexInput = document.getElementById('currentEditingActionIndex');
     const currentEditingActionTypeInput = document.getElementById('currentEditingActionType');
 
+    const viewAllActionsButton = document.getElementById('viewAllActionsButton');
+    const allActionsListUl = document.getElementById('allActionsListUl');
+
 
     function openActionModal(contextType, existingAction = null, actionIndex = null) {
         currentEditingActionTypeInput.value = contextType; // 'onEntry', 'onExit', or 'onTransition'
@@ -501,7 +597,11 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
              baseTitle = `Configure ${actionContextName} Action`; // Fallback
         }
-        actionModalTitle.textContent = isStringFunctionContext ? `${baseTitle} (Custom Function - View Only)` : baseTitle;
+        if (isStringFunctionContext) {
+            actionModalTitle.textContent = 'View Custom Function (Edit in Raw JSON)';
+        } else {
+            actionModalTitle.textContent = baseTitle;
+        }
 
 
         // Enable/Disable form fields based on context
@@ -513,6 +613,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (isStringFunctionContext) {
             actionConfigForm.reset();
+            document.getElementById('actionTypeSelect').value = 'externalApi'; // Default for new/string
             formElements.forEach(el => el.disabled = true);
             saveActionButton.disabled = true;
         } else {
@@ -520,21 +621,31 @@ document.addEventListener('DOMContentLoaded', function() {
             saveActionButton.disabled = false;
 
             if (existingAction && typeof existingAction === 'object') {
+                document.getElementById('actionTypeSelect').value = existingAction.type || 'externalApi';
+
                 actionConfigForm.requestUrl.value = existingAction.request?.url || '';
                 actionConfigForm.requestMethod.value = existingAction.request?.method || 'GET';
                 actionConfigForm.headers.value = existingAction.request?.headers ? JSON.stringify(existingAction.request.headers, null, 2) : '';
                 actionConfigForm.body.value = existingAction.request?.body ? JSON.stringify(existingAction.request.body, null, 2) : '';
-                actionConfigForm.storeResponseAs.value = existingAction.storeResponseAs || '';
+
+                if (existingAction.type === 'ari') {
+                    document.getElementById('ariOperationSelect').value = existingAction.operation || 'answer';
+                    document.getElementById('ariParameters').value = existingAction.parameters ? JSON.stringify(existingAction.parameters, null, 2) : '';
+                }
+
+                actionConfigForm.storeResponseAs.value = existingAction.storeResponseAs || existingAction.storeResultAs || ''; // Check both
                 actionConfigForm.onSuccess.value = existingAction.onSuccess || '';
                 actionConfigForm.onFailure.value = existingAction.onFailure || '';
                 currentEditingActionIndexInput.value = actionIndex !== null ? actionIndex.toString() : '';
             } else {
                 actionConfigForm.reset(); // Clear form for new action
+                document.getElementById('actionTypeSelect').value = 'externalApi'; // Default for new
                 currentEditingActionIndexInput.value = ''; // Ensure no index when adding new
             }
         }
 
         loadActionsIntoModalList(actionContextName); // Pass contextType, which is actionContextName
+        updateActionFormFields(); // Initialize field visibility
         actionConfigModal.style.display = 'block';
     }
 
@@ -543,6 +654,16 @@ document.addEventListener('DOMContentLoaded', function() {
         actionConfigForm.reset();
         currentEditingActionIndexInput.value = '';
         currentEditingActionTypeInput.value = '';
+    }
+
+    function updateActionFormFields() {
+        const selectedType = document.getElementById('actionTypeSelect').value;
+        const externalApiDiv = document.getElementById('externalApiFields');
+        const ariDiv = document.getElementById('ariFields');
+
+        externalApiDiv.style.display = selectedType === 'externalApi' ? 'block' : 'none';
+        ariDiv.style.display = selectedType === 'ari' ? 'block' : 'none';
+        // Add more types here if they are added later
     }
 
     function loadActionsIntoModalList(contextType) {
@@ -605,8 +726,15 @@ document.addEventListener('DOMContentLoaded', function() {
         actions.forEach((action, index) => {
             const li = document.createElement('li');
             // Display some summary of the action
-            let summary = `Action ${index + 1}: ${action.type || 'externalApi'} - ${action.request?.method || 'GET'} ${action.request?.url?.substring(0,30)}...`;
-            if(action.storeResponseAs) summary += ` (stores as ${action.storeResponseAs})`;
+            let summary;
+            if (action.type === 'ari') {
+                summary = `Action ${index + 1}: ARI - ${action.operation}`;
+            } else if (action.type === 'externalApi') {
+                summary = `Action ${index + 1}: API - ${action.request?.method || 'GET'} ${action.request?.url?.substring(0,30) || '(no URL)'}...`;
+            } else {
+                summary = `Action ${index + 1}: ${action.type || 'Unknown type'}`;
+            }
+            if(action.storeResponseAs || action.storeResultAs) summary += ` (stores as ${action.storeResponseAs || action.storeResultAs})`;
 
 
             const editButton = document.createElement('button');
@@ -703,55 +831,83 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        const actionData = {
-            type: "externalApi", // Currently only supporting this type
-            request: {
+        const actionType = document.getElementById('actionTypeSelect').value;
+        let actionData = {
+            type: actionType,
+            // onSuccess, onFailure will be added later
+        };
+
+        if (actionType === 'externalApi') {
+            actionData.request = {
                 url: actionConfigForm.requestUrl.value.trim(),
                 method: actionConfigForm.requestMethod.value,
                 headers: {},
                 body: null
-            },
-            storeResponseAs: actionConfigForm.storeResponseAs.value.trim() || undefined,
-            onSuccess: actionConfigForm.onSuccess.value.trim() || undefined,
-            onFailure: actionConfigForm.onFailure.value.trim() || undefined,
-        };
-
-        // Validate URL
-        if (!actionData.request.url) {
-            displayFlashMessage('error', 'Request URL is required.');
-            return;
-        }
-
-        // Parse Headers
-        try {
-            const headersStr = actionConfigForm.headers.value.trim();
-            if (headersStr) actionData.request.headers = JSON.parse(headersStr);
-        } catch (e) {
-            displayFlashMessage('error', 'Invalid JSON in Headers.');
-            return;
-        }
-
-        // Parse Body
-        try {
-            const bodyStr = actionConfigForm.body.value.trim();
-            if (bodyStr && (actionData.request.method === 'POST' || actionData.request.method === 'PUT' || actionData.request.method === 'PATCH')) {
-                 actionData.request.body = JSON.parse(bodyStr);
-            } else if (bodyStr) {
-                console.warn(`Body content provided for ${actionData.request.method} request, but it might not be used by the server.`);
-                // Allow it, server might handle it or user might change method later.
-                 actionData.request.body = JSON.parse(bodyStr);
+            };
+            if (!actionData.request.url) {
+                displayFlashMessage('error', 'Request URL is required for externalApi.');
+                return;
             }
-        } catch (e) {
-            displayFlashMessage('error', 'Invalid JSON in Body.');
-            return;
+            try {
+                const headersStr = actionConfigForm.headers.value.trim();
+                if (headersStr) actionData.request.headers = JSON.parse(headersStr);
+            } catch (e) {
+                displayFlashMessage('error', 'Invalid JSON in Headers.');
+                return;
+            }
+            try {
+                const bodyStr = actionConfigForm.body.value.trim();
+                if (bodyStr && (actionData.request.method === 'POST' || actionData.request.method === 'PUT' || actionData.request.method === 'PATCH')) {
+                     actionData.request.body = JSON.parse(bodyStr);
+                } else if (bodyStr) {
+                     actionData.request.body = JSON.parse(bodyStr); // Allow body for other methods too, for flexibility
+                }
+            } catch (e) {
+                displayFlashMessage('error', 'Invalid JSON in Body.');
+                return;
+            }
+            if (Object.keys(actionData.request.headers).length === 0) delete actionData.request.headers;
+            if (actionData.request.body === null) delete actionData.request.body;
+
+        } else if (actionType === 'ari') {
+            actionData.operation = document.getElementById('ariOperationSelect').value;
+            const paramsStr = document.getElementById('ariParameters').value.trim();
+            if (paramsStr) {
+                try {
+                    actionData.parameters = JSON.parse(paramsStr);
+                } catch (e) {
+                    displayFlashMessage('error', 'Invalid JSON in ARI Parameters.');
+                    return;
+                }
+            } else {
+                actionData.parameters = {}; // Default to empty object if no params
+            }
+        }
+        // Add more types here
+
+        // Common fields (storeResponseAs, onSuccess, onFailure)
+        let storeResponseVal = actionConfigForm.storeResponseAs.value.trim();
+        if (storeResponseVal) {
+            if (actionType === 'ari') {
+                actionData.storeResultAs = storeResponseVal;
+            } else {
+                actionData.storeResponseAs = storeResponseVal;
+            }
         }
 
-        // Remove undefined fields for cleaner JSON
-        if (!actionData.storeResponseAs) delete actionData.storeResponseAs;
-        if (!actionData.onSuccess) delete actionData.onSuccess;
-        if (!actionData.onFailure) delete actionData.onFailure;
-        if (Object.keys(actionData.request.headers).length === 0) delete actionData.request.headers;
-        if (actionData.request.body === null) delete actionData.request.body;
+        let onSuccessVal = actionConfigForm.onSuccess.value.trim();
+        if (onSuccessVal) actionData.onSuccess = onSuccessVal;
+
+        let onFailureVal = actionConfigForm.onFailure.value.trim();
+        if (onFailureVal) actionData.onFailure = onFailureVal;
+
+        // Remove undefined common fields for cleaner JSON (already handled by || undefined or direct assignment if value exists)
+        // if (!actionData.storeResponseAs && !actionData.storeResultAs) {
+        //     delete actionData.storeResponseAs;
+        //     delete actionData.storeResultAs;
+        // } // This logic is now implicitly handled by only setting if value exists.
+        // if (!actionData.onSuccess) delete actionData.onSuccess; // Handled
+        // if (!actionData.onFailure) delete actionData.onFailure; // Handled
 
 
         if (editingIndex !== null && editingIndex >= 0 && editingIndex < (actionContextName === 'onTransition' ? connectionActions[currentId].length : targetObjectForActions[actionsArrayName].length) ) {
@@ -786,6 +942,9 @@ document.addEventListener('DOMContentLoaded', function() {
         // displayFlashMessage('success', `Action saved for ${actionContextName}.`);
         // For a less intrusive experience, don't close modal automatically, let user add more or close.
     };
+
+    document.getElementById('actionTypeSelect').addEventListener('change', updateActionFormFields);
+    viewAllActionsButton.addEventListener('click', displayAllFsmActions);
 
     function updateActionIndicator(nodeId) {
         if (!nodeId) {
@@ -1174,23 +1333,48 @@ document.addEventListener('DOMContentLoaded', function() {
                 <input type="hidden" id="currentEditingActionIndex" value="">
                 <input type="hidden" id="currentEditingActionType" value=""> <!-- e.g., onEntry, onExit -->
 
-                <label for="actionRequestUrl">Request URL:</label>
-                <input type="text" id="actionRequestUrl" name="requestUrl" placeholder="e.g., http://api.example.com/data">
-
-                <label for="actionRequestMethod">Request Method:</label>
-                <select id="actionRequestMethod" name="requestMethod">
-                    <option value="GET">GET</option>
-                    <option value="POST">POST</option>
-                    <option value="PUT">PUT</option>
-                    <option value="DELETE">DELETE</option>
-                    <option value="PATCH">PATCH</option>
+                <label for="actionTypeSelect">Action Type:</label>
+                <select id="actionTypeSelect" name="actionType">
+                    <option value="externalApi" selected>External API</option>
+                    <option value="ari">ARI Operation</option>
+                    <!-- Add other types like 'log' later if needed -->
                 </select>
 
-                <label for="actionHeaders">Headers (JSON format):</label>
-                <textarea id="actionHeaders" name="headers" placeholder='{ "Content-Type": "application/json" }'></textarea>
+                <div id="externalApiFields">
+                    <label for="actionRequestUrl">Request URL:</label>
+                    <input type="text" id="actionRequestUrl" name="requestUrl" placeholder="e.g., http://api.example.com/data">
 
-                <label for="actionBody">Body (JSON format, for POST/PUT/PATCH):</label>
-                <textarea id="actionBody" name="body" placeholder='{ "key": "value" }'></textarea>
+                    <label for="actionRequestMethod">Request Method:</label>
+                    <select id="actionRequestMethod" name="requestMethod">
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="DELETE">DELETE</option>
+                        <option value="PATCH">PATCH</option>
+                    </select>
+
+                    <label for="actionHeaders">Headers (JSON format):</label>
+                    <textarea id="actionHeaders" name="headers" placeholder='{ "Content-Type": "application/json" }'></textarea>
+
+                    <label for="actionBody">Body (JSON format, for POST/PUT/PATCH):</label>
+                    <textarea id="actionBody" name="body" placeholder='{ "key": "value" }'></textarea>
+                </div>
+
+                <div id="ariFields" style="display: none;">
+                    <label for="ariOperationSelect">ARI Operation:</label>
+                    <select id="ariOperationSelect" name="ariOperation">
+                        <option value="answer">Answer</option>
+                        <option value="hangup">Hangup</option>
+                        <option value="playAudio">Play Audio</option>
+                        <option value="getVariable">Get Variable</option>
+                        <option value="setVariable">Set Variable</option>
+                        <option value="getData">Get Data (DTMF)</option>
+                        <option value="originateCall">Originate Call</option>
+                    </select>
+
+                    <label for="ariParameters">Parameters (JSON format):</label>
+                    <textarea id="ariParameters" name="ariParameters" placeholder='{ "media": "sound:your-prompt" }'></textarea>
+                </div>
 
                 <label for="actionStoreResponseAs">Store Response As (FSM variable name):</label>
                 <input type="text" id="actionStoreResponseAs" name="storeResponseAs" placeholder="e.g., userData, apiResult">
