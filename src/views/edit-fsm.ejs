@@ -88,6 +88,19 @@
     // Make API_TOKEN available to client-side script via a global variable.
     // This is a security risk for production.
     const API_TOKEN = "<%= locals.apiTokenForClient %>";
+
+    if (API_TOKEN === "SERVER_TOKEN_MISSING") {
+        console.error("API_TOKEN is missing on the server. Cannot fetch FSM data.");
+        alert("Critical: API Token not configured on the server. FSM editor cannot function. Please configure API_TOKEN in the .env file.");
+        // Disable UI elements that make API calls.
+        // For example, disable all form submit buttons and the reload graph button.
+        document.querySelectorAll('.forms-container button[type="submit"]').forEach(btn => btn.disabled = true);
+        const reloadBtn = document.getElementById("reloadGraphButton");
+        if(reloadBtn) reloadBtn.disabled = true;
+        // Consider stopping further script execution if safe.
+        // For now, alerting and disabling is the primary action.
+    }
+
     let currentFsmDefinition = {};
 
     function displayFlashMessage(type, message) {

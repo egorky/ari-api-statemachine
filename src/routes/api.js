@@ -4,8 +4,13 @@ const stateMachineManager = require("../services/stateMachineManager");
 const router = express.Router();
 
 const authenticateToken = (req, res, next) => {
+    if (!process.env.API_TOKEN || process.env.API_TOKEN === "YOUR_STRONG_API_TOKEN_HERE" || process.env.API_TOKEN === "SERVER_TOKEN_MISSING") {
+        console.error("CRITICAL: API_TOKEN is not configured or is using a placeholder value. API will not be secure.");
+        return res.status(500).json({ error: "API authentication is not configured properly on the server." });
+    }
     const authHeader = req.headers["authorization"];
     const token = authHeader && authHeader.split(" ")[1];
+    console.log(`authenticateToken: Received token - '${token}', Expected token - '${process.env.API_TOKEN}'`);
     if (token == null) return res.status(401).json({ error: "Null token" });
     if (token !== process.env.API_TOKEN) return res.status(403).json({ error: "Invalid token" });
     next();
