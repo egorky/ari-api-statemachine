@@ -44,7 +44,7 @@
 <script>
     const fsmId = "<%= fsmId %>";
     const csrfToken = "<%= csrfToken %>";
-    const API_TOKEN = "<%= locals.apiTokenForClient %>";
+    const API_TOKEN = <%- JSON.stringify(locals.apiTokenForClient || "") %>;
 
     if (API_TOKEN === "SERVER_TOKEN_MISSING") {
         console.error("API_TOKEN is missing on the server. Cannot fetch FSM data.");

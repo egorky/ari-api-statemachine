@@ -87,7 +87,7 @@
     const csrfToken = "<%= csrfToken %>";
     // Make API_TOKEN available to client-side script via a global variable.
     // This is a security risk for production.
-    const API_TOKEN = "<%= locals.apiTokenForClient %>";
+    const API_TOKEN = <%- JSON.stringify(locals.apiTokenForClient || "") %>;
 
     if (API_TOKEN === "SERVER_TOKEN_MISSING") {
         console.error("API_TOKEN is missing on the server. Cannot fetch FSM data.");
