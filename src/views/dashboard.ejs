@@ -9,7 +9,7 @@
             <li>
                 <span><%= fsm %></span>
                 <div>
-                    <a href="/fsm/edit/<%= fsm %>" style="margin-right: 10px;">Edit</a>
+                    <a href="/fsm/edit-graphical/<%= fsm %>" style="margin-right: 10px;">Edit</a>
                     <form action="/fsm/delete/<%= fsm %>" method="POST" onsubmit="return confirm(\"Are you sure you want to delete <%= fsm %>?\");" style="display: inline;">
                         <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                         <button type="submit" class="logout-btn">Delete</button>

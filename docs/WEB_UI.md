@@ -27,7 +27,7 @@ The dashboard is the main page for managing FSM definitions.
         *   The JSON content must include a top-level `"id"` property.
         *   The value of this `"id"` property must match the filename (excluding the `.json` extension).
     *   Click "Choose File", select the file, and click "Upload".
-*   **Edit:** Provides links to edit an FSM using either the Graphical Editor or the Text-Based Editor.
+*   **Edit:** Provides a link to edit an FSM using the Graphical Editor (`/fsm/edit-graphical/:machineId`). A Text-Based Editor (`/fsm/edit/:machineId`) is also available if accessed directly by its URL.
 *   **Delete:** Allows deletion of an FSM definition file from the server (confirmation is required).
 
 ## Graphical FSM Editor (`/fsm/edit-graphical/:machineId`)

@@ -46,6 +46,7 @@
 
 
 <script>
+document.addEventListener('DOMContentLoaded', function() {
     const fsmId = "<%= fsmId %>";
     const csrfToken = "<%= csrfToken %>";
     const API_TOKEN = <%- JSON.stringify(locals.apiTokenForClient || "") %>;
@@ -935,6 +936,7 @@
            displayFlashMessage("error", `Save failed: ${error.message}`);
        }
     });
+});
 </script>
 <style>
     .editor-container { display: flex; gap: 20px; }
