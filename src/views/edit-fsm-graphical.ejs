@@ -308,6 +308,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function loadInitialData() {
         try {
+            console.log('Inspecting editor object just before clearModuleView:', editor);
             editor.clearModuleView('Home'); // Clear editor at the start
             initialFsmStateNodeId = null;
             loadedFsmTransitions = []; // Reset this too
