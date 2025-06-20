@@ -51,29 +51,35 @@ document.addEventListener('DOMContentLoaded', function() {
     const csrfToken = "<%= csrfToken %>";
     const API_TOKEN = <%- JSON.stringify(locals.apiTokenForClient || "") %>;
 
-    if (API_TOKEN === "SERVER_TOKEN_MISSING") {
-        console.error("API_TOKEN is missing on the server. Cannot fetch FSM data.");
-        alert("Critical: API Token not configured on the server. FSM editor cannot function. Please configure API_TOKEN in the .env file.");
-        // Disable UI elements
-        const reloadBtn = document.getElementById("reloadGraphButton");
-        if(reloadBtn) reloadBtn.disabled = true;
-        const saveBtn = document.getElementById("saveGraphicalDefinitionButton");
-        if(saveBtn) saveBtn.disabled = true;
-        // Stop further script execution if critical components rely on this.
-        // For now, disabling buttons and alerting is the primary action.
-        // Consider throwing an error or returning if the rest of the script is in a function.
-    }
-
-    let currentFsmDefinition = {}; // This will hold the FSM definition, possibly updated by Drawflow
+    let editor;
+    let currentFsmDefinition = {};
     let initialFsmStateNodeId = null;
-    let loadedFsmTransitions = []; // To store transitions from the loaded FSM
+    let loadedFsmTransitions = [];
+    let connectionActions = {};
+    let currentSelectedNodeId = null;
+    let currentSelectedConnectionId = null;
+    let defaultNodeCounter = 1;
 
-    const editorContainer = document.getElementById('drawflow-editor');
-    const editor = new Drawflow(editorContainer);
-    editor.reroute = true; // Enable connection rerouting
-    editor.start();
+    function setupEditorAndLoadData() {
+        if (API_TOKEN === "SERVER_TOKEN_MISSING") {
+            console.error("API_TOKEN is missing on the server. Cannot fetch FSM data.");
+            alert("Critical: API Token not configured on the server. FSM editor cannot function. Please configure API_TOKEN in the .env file.");
+            // Disable UI elements
+            const reloadBtn = document.getElementById("reloadGraphButton");
+            if(reloadBtn) reloadBtn.disabled = true;
+            const saveBtn = document.getElementById("saveGraphicalDefinitionButton");
+            if(saveBtn) saveBtn.disabled = true;
+            // Stop further script execution if critical components rely on this.
+            // For now, disabling buttons and alerting is the primary action.
+            // Consider throwing an error or returning if the rest of the script is in a function.
+        }
 
-    // Example: Add a way to create a new state node
+        const editorContainer = document.getElementById('drawflow-editor');
+        editor = new Drawflow(editorContainer); // Assign to the outer scope variable
+        editor.reroute = true; // Enable connection rerouting
+        editor.start();
+
+        // Example: Add a way to create a new state node
     // This is a simplified way; a proper UI element (button/menu) would be better.
     // editor.addNode('state', 1, 1, 100, 50, 'state-node', { name: 'NewState' }, 'State Node'); // Removed for blank canvas start
     // For testing, let's add it without specific content to see it appear
@@ -936,6 +942,50 @@ document.addEventListener('DOMContentLoaded', function() {
            displayFlashMessage("error", `Save failed: ${error.message}`);
        }
     });
+
+    // Initial load (moved inside setupEditorAndLoadData)
+    // loadInitialData(); // This will be called after editor is set up
+    } // End of setupEditorAndLoadData
+
+    const checkDrawflowInterval = setInterval(function() {
+        if (typeof Drawflow !== 'undefined' && typeof d3 !== 'undefined' && d3.select && d3.select("#graph").graphviz) {
+            clearInterval(checkDrawflowInterval);
+            console.log('Drawflow and d3-graphviz libraries loaded, proceeding with editor setup.');
+            setupEditorAndLoadData();
+        } else {
+            let missing = [];
+            if (typeof Drawflow === 'undefined') missing.push('Drawflow');
+            if (typeof d3 === 'undefined') missing.push('D3.js');
+            if (typeof d3 !== 'object' || typeof d3.select !== 'function' || !d3.select("#graph").graphviz) missing.push('d3-graphviz');
+            console.log('Waiting for libraries to load: ' + missing.join(', ') + '...');
+        }
+    }, 200); // Check every 200ms
+
+    setTimeout(function() {
+        // Check one last time
+        if (typeof Drawflow === 'undefined' || typeof d3 === 'undefined' || typeof d3.select !== 'function' || !d3.select("#graph").graphviz) {
+            clearInterval(checkDrawflowInterval);
+            let missing = [];
+            if (typeof Drawflow === 'undefined') missing.push('Drawflow');
+            if (typeof d3 === 'undefined') missing.push('D3.js');
+            if (typeof d3 !== 'object' || typeof d3.select !== 'function' || !d3.select("#graph").graphviz) missing.push('d3-graphviz');
+
+            console.error('A required library ('+ missing.join(', ') +') failed to load after 10 seconds. Cannot initialize editor.');
+            const editorDiv = document.getElementById('drawflow-editor');
+            const graphDiv = document.getElementById('graph');
+            const message = '<p style="color:red;padding:10px;">Error: Critical graphical editor components (' + missing.join(', ') + ') failed to load. Please check your internet connection or try refreshing the page.</p>';
+
+            if (editorDiv) editorDiv.innerHTML = message;
+            if (graphDiv) graphDiv.innerHTML = message;
+
+            // Disable buttons
+            const buttonsToDisable = ["saveGraphicalDefinitionButton", "addStateButton", "setInitialStateButton", "reloadGraphButton", "addOnEntryActionButton", "addOnExitActionButton", "addTransitionActionButton"];
+            buttonsToDisable.forEach(btnId => {
+                const btn = document.getElementById(btnId);
+                if (btn) btn.disabled = true;
+            });
+        }
+    }, 10000); // Timeout after 10 seconds
 });
 </script>
 <style>
