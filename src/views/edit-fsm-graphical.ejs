@@ -18,6 +18,11 @@
         <div style="margin-bottom: 10px;">
             <button id="addStateButton">Add State Node</button>
             <button id="setInitialStateButton">Set Selected as Initial</button>
+            <span id="selectedNodeActions" style="display:none; margin-left: 20px;">
+                <button id="addOnEntryActionButton">Add onEntry Action</button>
+                <button id="addOnExitActionButton">Add onExit Action</button>
+                <span id="nodeActionIndicator" style="margin-left: 10px; font-style:italic;"></span>
+            </span>
         </div>
         <div id="drawflow-editor" style="width: 100%; height: 600px; border: 1px solid #ccc; margin-bottom: 20px;"></div>
         <button id="saveGraphicalDefinitionButton">Save Graphical Definition</button>
@@ -30,7 +35,7 @@
 </div>
 
 <script src="https://d3js.org/d3.v5.min.js"></script>
-<script src="https://unpkg.com/@hpcc-js/wasm@0.3.11/dist/index.min.js"></script>
+<script src="/vendor/@hpcc-js/wasm/dist/index.min.js"></script> <!-- Local path -->
 <script src="https://unpkg.com/d3-graphviz@3.0.5/build/d3-graphviz.js"></script>
 <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow/dist/drawflow.min.css">
 <script src="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow/dist/drawflow.min.js"></script>
@@ -39,7 +44,21 @@
 <script>
     const fsmId = "<%= fsmId %>";
     const csrfToken = "<%= csrfToken %>";
-    const API_TOKEN = "<%= locals.apiTokenForClient %>";
+    const API_TOKEN = <%- JSON.stringify(locals.apiTokenForClient || "") %>;
+
+    if (API_TOKEN === "SERVER_TOKEN_MISSING") {
+        console.error("API_TOKEN is missing on the server. Cannot fetch FSM data.");
+        alert("Critical: API Token not configured on the server. FSM editor cannot function. Please configure API_TOKEN in the .env file.");
+        // Disable UI elements
+        const reloadBtn = document.getElementById("reloadGraphButton");
+        if(reloadBtn) reloadBtn.disabled = true;
+        const saveBtn = document.getElementById("saveGraphicalDefinitionButton");
+        if(saveBtn) saveBtn.disabled = true;
+        // Stop further script execution if critical components rely on this.
+        // For now, disabling buttons and alerting is the primary action.
+        // Consider throwing an error or returning if the rest of the script is in a function.
+    }
+
     let currentFsmDefinition = {}; // This will hold the FSM definition, possibly updated by Drawflow
     let initialFsmStateNodeId = null;
     let loadedFsmTransitions = []; // To store transitions from the loaded FSM
@@ -73,10 +92,50 @@
     // addStateNodeToEditor(); // User will use button
 
     // --- Event listener for editing node name on double-click ---
+    const selectedNodeActionsContainer = document.getElementById('selectedNodeActions');
+    const nodeActionIndicator = document.getElementById('nodeActionIndicator');
+    let currentSelectedNodeId = null;
+
     editor.on('nodeSelected', function(id) {
-        const node = editor.getNodeFromId(id);
-        // If you want to make it editable only after selection, then dblclick
+        currentSelectedNodeId = id;
+        selectedNodeActionsContainer.style.display = 'inline';
+        updateActionIndicator(id);
     });
+
+    editor.on('nodeUnselected', function(id) { // Assuming 'nodeUnselected' event exists or handling click outside
+        // If Drawflow doesn't have 'nodeUnselected', we might need to handle clicks on canvas/editor background
+        // For now, let's assume selection clear implies unselected.
+        // The action buttons should hide if no node is selected.
+        // This might also need to be triggered if a node is deleted.
+        if (editor.selected_node == null) { // Check if any node is currently selected
+             currentSelectedNodeId = null;
+             selectedNodeActionsContainer.style.display = 'none';
+             nodeActionIndicator.textContent = '';
+        }
+    });
+
+    // Fallback for unselecting: click on canvas
+    editor.on('click', function(event) {
+        if (event.target.classList.contains('parent-drawflow') || event.target.classList.contains('drawflow')) {
+            // Clicked on canvas background
+            if (currentSelectedNodeId && editor.getNodeFromId(currentSelectedNodeId)) {
+                // editor.deselectNode(currentSelectedNodeId); // Drawflow does not have a public deselectNode method
+                // For now, simply hide the buttons if the click was on the canvas.
+                // A more robust solution would be to manage selection state more explicitly.
+            }
+            // If a node is not selected after a general click, hide the controls.
+            // Drawflow seems to handle its own selection clearing when canvas is clicked.
+            // The selected_node property will be null.
+             setTimeout(() => { // Allow Drawflow to process its click first
+                if (editor.selected_node == null) {
+                    currentSelectedNodeId = null;
+                    selectedNodeActionsContainer.style.display = 'none';
+                    nodeActionIndicator.textContent = '';
+                }
+            }, 0);
+        }
+    });
+
 
     editor.on('dblclick', function(event) {
         // Check if the double click was on a node's content
@@ -156,7 +215,10 @@
     async function renderGraph() {
         try {
             const dotString = await fetchDotString();
-            d3.select("#graph").graphviz({ useWorker: false })
+            d3.select("#graph").graphviz({
+                useWorker: false,
+                wasmFolder: '/vendor/@hpcc-js/wasm/dist/' // Local path
+            })
                 .renderDot(dotString)
                 .on("end", function () {
                     console.log("Graph rendered for visualization.");
@@ -230,8 +292,21 @@
 
        stateNames.forEach(stateName => {
            const nodeHTML = createStateNodeHTML(stateName); // Uses existing helper
-           // For now, using fixed input/output counts (1,1)
-           const nodeId = editor.addNode('state', 1, 1, currentX, currentY, 'state-node', { name: stateName }, nodeHTML);
+           const stateData = { name: stateName }; // Initial data for the node
+
+           // Load onEntry/onExit actions if they exist in the definition
+           const fsmStateConfig = fsmDefinition.states[stateName];
+           if (fsmStateConfig) {
+               if (fsmStateConfig.onEntry) {
+                   stateData.onEntryActions = JSON.parse(JSON.stringify(fsmStateConfig.onEntry)); // Deep copy
+               }
+               if (fsmStateConfig.onExit) {
+                   stateData.onExitActions = JSON.parse(JSON.stringify(fsmStateConfig.onExit)); // Deep copy
+               }
+               // Potentially load other state-specific configurations here in the future
+           }
+
+           const nodeId = editor.addNode('state', 1, 1, currentX, currentY, 'state-node', stateData, nodeHTML);
            stateToNodeIdMap[stateName] = nodeId.toString(); // Ensure nodeId is string for map key
 
            nodesInCurrentRow++;
@@ -294,8 +369,239 @@
     // Initial load
     loadInitialData();
 
+    // --- Action Modal Elements ---
+    const actionConfigModal = document.getElementById('actionConfigModal');
+    const closeActionModalButton = document.getElementById('closeActionModalButton');
+    const saveActionButton = document.getElementById('saveActionButton');
+    const cancelActionButton = document.getElementById('cancelActionButton');
+    const actionConfigForm = document.getElementById('actionConfigForm');
+    const actionModalTitle = document.getElementById('actionModalTitle');
+    const currentActionsUl = document.getElementById('currentActionsUl');
+    const currentEditingActionIndexInput = document.getElementById('currentEditingActionIndex');
+    const currentEditingActionTypeInput = document.getElementById('currentEditingActionType');
+
+
+    function openActionModal(actionType, existingAction = null, actionIndex = null) {
+        currentEditingActionTypeInput.value = actionType; // 'onEntry' or 'onExit'
+        actionModalTitle.textContent = `Configure ${actionType} Action`;
+
+        if (existingAction && typeof existingAction === 'object') {
+            actionConfigForm.requestUrl.value = existingAction.request?.url || '';
+            actionConfigForm.requestMethod.value = existingAction.request?.method || 'GET';
+            actionConfigForm.headers.value = existingAction.request?.headers ? JSON.stringify(existingAction.request.headers, null, 2) : '';
+            actionConfigForm.body.value = existingAction.request?.body ? JSON.stringify(existingAction.request.body, null, 2) : '';
+            actionConfigForm.storeResponseAs.value = existingAction.storeResponseAs || '';
+            actionConfigForm.onSuccess.value = existingAction.onSuccess || '';
+            actionConfigForm.onFailure.value = existingAction.onFailure || '';
+            currentEditingActionIndexInput.value = actionIndex !== null ? actionIndex.toString() : '';
+        } else {
+            actionConfigForm.reset(); // Clear form for new action
+            currentEditingActionIndexInput.value = ''; // Ensure no index when adding new
+        }
+
+        loadActionsIntoModalList(actionType);
+        actionConfigModal.style.display = 'block';
+    }
+
+    function closeActionModal() {
+        actionConfigModal.style.display = 'none';
+        actionConfigForm.reset();
+        currentEditingActionIndexInput.value = '';
+        currentEditingActionTypeInput.value = '';
+    }
+
+    function loadActionsIntoModalList(actionType) {
+        if (!currentSelectedNodeId) return;
+        const node = editor.getNodeFromId(currentSelectedNodeId);
+        if (!node || !node.data) return;
+
+        const actions = (actionType === 'onEntry' ? node.data.onEntryActions : node.data.onExitActions) || [];
+        currentActionsUl.innerHTML = ''; // Clear list
+
+        if (actions.length === 0) {
+            const li = document.createElement('li');
+            li.textContent = 'No actions configured yet.';
+            currentActionsUl.appendChild(li);
+            return;
+        }
+
+        actions.forEach((action, index) => {
+            const li = document.createElement('li');
+            // Display some summary of the action
+            let summary = `Action ${index + 1}: ${action.type || 'externalApi'} - ${action.request?.method || 'GET'} ${action.request?.url?.substring(0,30)}...`;
+            if(action.storeResponseAs) summary += ` (stores as ${action.storeResponseAs})`;
+
+
+            const editButton = document.createElement('button');
+            editButton.textContent = 'Edit';
+            editButton.style.marginLeft = '10px';
+            editButton.onclick = () => {
+                openActionModal(actionType, action, index); // Re-open modal for editing this action
+            };
+
+            const deleteButton = document.createElement('button');
+            deleteButton.textContent = 'Delete';
+            deleteButton.style.marginLeft = '5px';
+            deleteButton.onclick = () => {
+                deleteAction(actionType, index);
+            };
+
+            li.textContent = summary;
+            li.appendChild(editButton);
+            li.appendChild(deleteButton);
+            currentActionsUl.appendChild(li);
+        });
+    }
+
+    function deleteAction(actionType, index) {
+        if (!currentSelectedNodeId) return;
+        const node = editor.getNodeFromId(currentSelectedNodeId);
+        if (!node || !node.data) return;
+
+        const actionArrayName = actionType === 'onEntry' ? 'onEntryActions' : 'onExitActions';
+        let actions = node.data[actionArrayName] || [];
+
+        if (index >= 0 && index < actions.length) {
+            actions.splice(index, 1);
+            const updateData = { ...node.data, [actionArrayName]: actions };
+            editor.updateNodeDataFromId(currentSelectedNodeId, updateData);
+            updateActionIndicator(currentSelectedNodeId);
+            loadActionsIntoModalList(actionType); // Refresh list in modal
+        }
+    }
+
+
+    closeActionModalButton.onclick = closeActionModal;
+    cancelActionButton.onclick = closeActionModal;
+    window.onclick = function(event) { // Close modal if clicked outside
+        if (event.target == actionConfigModal) {
+            closeActionModal();
+        }
+    }
+
+    saveActionButton.onclick = function() {
+        if (!currentSelectedNodeId) {
+            displayFlashMessage('error', 'No node selected to save action to.');
+            return;
+        }
+        const node = editor.getNodeFromId(currentSelectedNodeId);
+        if (!node) {
+            displayFlashMessage('error', 'Selected node not found.');
+            return;
+        }
+
+        const actionType = currentEditingActionTypeInput.value; // 'onEntry' or 'onExit'
+        const actionArrayName = actionType === 'onEntry' ? 'onEntryActions' : 'onExitActions';
+
+        let actions = node.data[actionArrayName] || [];
+        const editingIndex = currentEditingActionIndexInput.value !== '' ? parseInt(currentEditingActionIndexInput.value) : null;
+
+        const actionData = {
+            type: "externalApi", // Currently only supporting this type
+            request: {
+                url: actionConfigForm.requestUrl.value.trim(),
+                method: actionConfigForm.requestMethod.value,
+                headers: {},
+                body: null
+            },
+            storeResponseAs: actionConfigForm.storeResponseAs.value.trim() || undefined,
+            onSuccess: actionConfigForm.onSuccess.value.trim() || undefined,
+            onFailure: actionConfigForm.onFailure.value.trim() || undefined,
+        };
+
+        // Validate URL
+        if (!actionData.request.url) {
+            displayFlashMessage('error', 'Request URL is required.');
+            return;
+        }
+
+        // Parse Headers
+        try {
+            const headersStr = actionConfigForm.headers.value.trim();
+            if (headersStr) actionData.request.headers = JSON.parse(headersStr);
+        } catch (e) {
+            displayFlashMessage('error', 'Invalid JSON in Headers.');
+            return;
+        }
+
+        // Parse Body
+        try {
+            const bodyStr = actionConfigForm.body.value.trim();
+            if (bodyStr && (actionData.request.method === 'POST' || actionData.request.method === 'PUT' || actionData.request.method === 'PATCH')) {
+                 actionData.request.body = JSON.parse(bodyStr);
+            } else if (bodyStr) {
+                console.warn(`Body content provided for ${actionData.request.method} request, but it might not be used by the server.`);
+                // Allow it, server might handle it or user might change method later.
+                 actionData.request.body = JSON.parse(bodyStr);
+            }
+        } catch (e) {
+            displayFlashMessage('error', 'Invalid JSON in Body.');
+            return;
+        }
+
+        // Remove undefined fields for cleaner JSON
+        if (!actionData.storeResponseAs) delete actionData.storeResponseAs;
+        if (!actionData.onSuccess) delete actionData.onSuccess;
+        if (!actionData.onFailure) delete actionData.onFailure;
+        if (Object.keys(actionData.request.headers).length === 0) delete actionData.request.headers;
+        if (actionData.request.body === null) delete actionData.request.body;
+
+
+        if (editingIndex !== null && editingIndex >= 0 && editingIndex < actions.length) {
+            actions[editingIndex] = actionData; // Update existing action
+        } else {
+            actions.push(actionData); // Add as new action
+        }
+
+        const updateData = { ...node.data, [actionArrayName]: actions };
+        editor.updateNodeDataFromId(currentSelectedNodeId, updateData);
+        updateActionIndicator(currentSelectedNodeId);
+
+        // If staying in modal to add more, just refresh list. Otherwise, close.
+        // For now, let's clear the form for a new action and refresh the list.
+        actionConfigForm.reset();
+        currentEditingActionIndexInput.value = ''; // Ready for new action unless one is explicitly edited from list
+        loadActionsIntoModalList(actionType);
+        // displayFlashMessage('success', `Action saved for ${actionType} on node ${node.data.name || currentSelectedNodeId}.`);
+        // For a less intrusive experience, don't close modal automatically, let user add more or close.
+    };
+
+    function updateActionIndicator(nodeId) {
+        if (!nodeId) {
+            nodeActionIndicator.textContent = '';
+            return;
+        }
+        const node = editor.getNodeFromId(nodeId);
+        if (!node || !node.data) {
+            nodeActionIndicator.textContent = '';
+            return;
+        }
+        const onEntryCount = node.data.onEntryActions ? node.data.onEntryActions.length : 0;
+        const onExitCount = node.data.onExitActions ? node.data.onExitActions.length : 0;
+        let indicatorText = '';
+        if (onEntryCount > 0) indicatorText += `onEntry (${onEntryCount}) `;
+        if (onExitCount > 0) indicatorText += `onExit (${onExitCount})`;
+        nodeActionIndicator.textContent = indicatorText.trim() ? `Actions: ${indicatorText}` : 'No actions';
+    }
+
     document.getElementById("addStateButton").addEventListener("click", () => {
         addStateNodeToEditor(); // Uses the function defined earlier
+    });
+
+    document.getElementById("addOnEntryActionButton").addEventListener("click", () => {
+        if (currentSelectedNodeId) {
+            openActionModal('onEntry');
+        } else {
+            displayFlashMessage('error', 'Please select a state node first.');
+        }
+    });
+
+    document.getElementById("addOnExitActionButton").addEventListener("click", () => {
+        if (currentSelectedNodeId) {
+            openActionModal('onExit');
+        } else {
+            displayFlashMessage('error', 'Please select a state node first.');
+        }
     });
 
     document.getElementById("setInitialStateButton").addEventListener("click", () => {
@@ -321,9 +627,19 @@
        const fsmJson = {
            id: fsmId,
            initial: "",
-           // transitions: [], // Will be rebuilt by new logic
-           states: {}
+           states: {}, // Will be populated with names and actions
+           transitions: [] // Will be populated based on connections and preserved data
+           // externalApis: currentFsmDefinition.externalApis || {} // Preserve existing top-level externalApis definitions
        };
+        // Preserve existing top-level definitions if they exist and are not managed by this UI directly
+       if (currentFsmDefinition.externalApis) {
+           fsmJson.externalApis = currentFsmDefinition.externalApis;
+       }
+       if (currentFsmDefinition.ariActions) {
+            fsmJson.ariActions = currentFsmDefinition.ariActions;
+       }
+
+
        const nodes = drawflowData.drawflow.Home.data;
 
        if (initialFsmStateNodeId && nodes[initialFsmStateNodeId] && nodes[initialFsmStateNodeId].data.name) {
@@ -331,22 +647,33 @@
        } else if (Object.keys(nodes).length > 0) {
            displayFlashMessage("error", "Initial state not explicitly set or the initial state node is missing a name. Please select a node, ensure it has a name, and click 'Set Selected as Initial'.");
            return;
-       } else {
-           displayFlashMessage("info", "Nothing to save. Editor is empty.");
+       } else if (Object.keys(nodes).length === 0 && loadedFsmTransitions.length === 0) { // Check if editor and loaded transitions are empty
+           displayFlashMessage("info", "Nothing to save. Editor is empty and no prior transitions exist.");
            return;
        }
 
-       // Process states first
+
+       // Process states, including their actions
        for (const nodeId in nodes) {
            const node = nodes[nodeId];
-           const stateName = node.data.name || `State_${nodeId}`;
+           const stateName = node.data.name || `State_${nodeId}`; // Ensure consistent naming
            if (!node.data.name) {
                console.warn(`Node ${nodeId} is missing a name. Using generated name: ${stateName}`);
            }
-           fsmJson.states[stateName] = { /* any future state-specific properties */ };
+
+           const stateConfig = {};
+           if (node.data.onEntryActions && node.data.onEntryActions.length > 0) {
+               stateConfig.onEntry = node.data.onEntryActions;
+           }
+           if (node.data.onExitActions && node.data.onExitActions.length > 0) {
+               stateConfig.onExit = node.data.onExitActions;
+           }
+           // Add other state-specific properties from node.data if any in future
+
+           fsmJson.states[stateName] = stateConfig;
        }
 
-       // Process transitions with preservation logic
+       // Process transitions with preservation logic (from existing currentFsmDefinition.transitions)
        fsmJson.transitions = []; // Start with an empty array
        const newTransitionsFromGraph = []; // Temporary array for transitions derived from Drawflow
 
@@ -454,5 +781,126 @@
         box-shadow: 0 0 10px #28a745;
     }
     /* Add more styling as needed */
+
+    /* Action Modal Styling */
+    .modal {
+        display: none; /* Hidden by default */
+        position: fixed; /* Stay in place */
+        z-index: 1000; /* Sit on top */
+        left: 0;
+        top: 0;
+        width: 100%; /* Full width */
+        height: 100%; /* Full height */
+        overflow: auto; /* Enable scroll if needed */
+        background-color: rgb(0,0,0); /* Fallback color */
+        background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+    }
+
+    .modal-content {
+        background-color: #fefefe;
+        margin: 10% auto; /* 10% from the top and centered */
+        padding: 20px;
+        border: 1px solid #888;
+        width: 60%; /* Could be more or less, depending on screen size */
+        border-radius: 8px;
+        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2),0 6px 20px 0 rgba(0,0,0,0.19);
+    }
+
+    .modal-header {
+        padding: 10px 16px;
+        background-color: #5cb85c;
+        color: white;
+        border-top-left-radius: 8px;
+        border-top-right-radius: 8px;
+    }
+    .modal-header h2 { margin: 0; }
+
+    .modal-body {padding: 10px 16px;}
+    .modal-footer {
+        padding: 10px 16px;
+        background-color: #f9f9f9;
+        text-align: right;
+        border-bottom-left-radius: 8px;
+        border-bottom-right-radius: 8px;
+    }
+    .modal-footer button { margin-left: 10px; }
+
+    .close-button {
+        color: white;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+    }
+    .close-button:hover,
+    .close-button:focus {
+        color: #000;
+        text-decoration: none;
+        cursor: pointer;
+    }
+    #actionConfigForm label { display: block; margin-top: 10px; }
+    #actionConfigForm input[type="text"],
+    #actionConfigForm select,
+    #actionConfigForm textarea {
+        width: 98%;
+        padding: 8px;
+        margin-top: 5px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+    #actionConfigForm textarea {
+        min-height: 80px;
+        font-family: monospace;
+    }
 </style>
+
+<!-- Action Configuration Modal -->
+<div id="actionConfigModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="close-button" id="closeActionModalButton">&times;</span>
+            <h2 id="actionModalTitle">Configure Action</h2>
+        </div>
+        <div class="modal-body">
+            <form id="actionConfigForm">
+                <input type="hidden" id="currentEditingActionIndex" value="">
+                <input type="hidden" id="currentEditingActionType" value=""> <!-- e.g., onEntry, onExit -->
+
+                <label for="actionRequestUrl">Request URL:</label>
+                <input type="text" id="actionRequestUrl" name="requestUrl" placeholder="e.g., http://api.example.com/data">
+
+                <label for="actionRequestMethod">Request Method:</label>
+                <select id="actionRequestMethod" name="requestMethod">
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="DELETE">DELETE</option>
+                    <option value="PATCH">PATCH</option>
+                </select>
+
+                <label for="actionHeaders">Headers (JSON format):</label>
+                <textarea id="actionHeaders" name="headers" placeholder='{ "Content-Type": "application/json" }'></textarea>
+
+                <label for="actionBody">Body (JSON format, for POST/PUT/PATCH):</label>
+                <textarea id="actionBody" name="body" placeholder='{ "key": "value" }'></textarea>
+
+                <label for="actionStoreResponseAs">Store Response As (FSM variable name):</label>
+                <input type="text" id="actionStoreResponseAs" name="storeResponseAs" placeholder="e.g., userData, apiResult">
+
+                <label for="actionOnSuccess">On Success Transition (optional):</label>
+                <input type="text" id="actionOnSuccess" name="onSuccess" placeholder="e.g., next, success">
+
+                <label for="actionOnFailure">On Failure Transition (optional):</label>
+                <input type="text" id="actionOnFailure" name="onFailure" placeholder="e.g., error, failed">
+            </form>
+            <div id="actionsList" style="margin-top: 20px;">
+                <h4>Configured Actions for this Hook:</h4>
+                <ul id="currentActionsUl"></ul>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="saveActionButton">Save Action</button>
+            <button id="cancelActionButton">Cancel</button>
+        </div>
+    </div>
+</div>
 <%- include("partials/footer") %>

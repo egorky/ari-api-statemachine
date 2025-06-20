@@ -1,0 +1,3 @@
+This is a placeholder for the actual graphvizlib.wasm binary file.
+In a real setup, this file would be copied from node_modules/@hpcc-js/wasm/dist/graphvizlib.wasm.
+It is a WebAssembly binary.

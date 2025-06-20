@@ -4,31 +4,36 @@ This project provides a robust system for creating, managing, and executing Fini
 
 ## Key Features
 
-*   **Core State Machine Engine**: Utilizes the \`javascript-state-machine\` library.
+*   **Core State Machine Engine**: Utilizes `javascript-state-machine` for robust FSM execution.
+*   **Declarative Actions**: FSMs can define actions (External API calls, Asterisk ARI operations) directly in their JSON structure for `onEntry`/`onExit` state events and on transitions.
 *   **REST API**:
-    *   Securely trigger FSM transitions.
-    *   Manage FSM definitions (list, get DOT representation, get JSON definition, modify).
-    *   Supports synchronous and asynchronous lifecycle methods in FSMs.
-    *   Enables FSMs to make external HTTP API calls.
+    *   Securely trigger FSM transitions with `eventPayload` and `initialData`.
+    *   Manage FSM definitions (list, get definition, get DOT representation).
+    *   Endpoints for step-by-step FSM definition primarily for web UI support (add state, add transition, set initial).
 *   **Web Interface (Password Protected)**:
-    *   Dashboard to list, upload, and delete FSM definitions (JSON files).
-    *   Graphical FSM editor:
-        *   Visualize FSMs as directed graphs.
-        *   Add new states.
-        *   Add new transitions between states.
-        *   Set the initial state of an FSM.
-        *   View the raw JSON definition.
+    *   Dashboard: List, upload, and delete FSM JSON definitions.
+    *   Graphical FSM Editor:
+        *   Visually create and modify states and transitions using Drawflow.
+        *   Configure `onEntry` and `onExit` actions for states via a modal UI:
+            *   Supports both "External API" and "ARI" action types.
+            *   Dynamic forms for configuring action parameters.
+            *   List, edit, and delete multiple actions per hook.
+        *   Set initial state.
+        *   View real-time graph visualization (d3-graphviz) and raw JSON.
+        *   Save FSM definitions.
+    *   Text-Based FSM Editor: For direct raw JSON editing.
     *   Option to disable the web UI via an environment variable.
 *   **Asterisk ARI Integration**:
-    *   Connects to Asterisk using ARI.
-    *   Handles incoming calls via a Stasis application.
-    *   Dynamically associates FSM instances with live Asterisk channels.
-    *   Enables FSMs to execute ARI actions (e.g., answer call, play sound, hangup, receive DTMF).
+    *   Connects to Asterisk via ARI for call control.
+    *   Handles incoming calls via a Stasis application, associating FSM instances with channels.
+    *   FSMs execute ARI actions (e.g., answer, playAudio, getData, originateCall, get/setVariable, hangup) using declarative JSON actions.
+    *   Supports DTMF handling by routing digits to FSM transitions (e.g., `input_1`, `handleDtmf`).
+    *   Dynamic placeholder support (`{{fsm.var}}`, `{{payload.var}}`, `{{event.var}}`) in ARI action parameters.
 *   **Dynamic FSM Configuration**:
-    *   FSMs are defined in JSON files.
-    *   Lifecycle methods can be defined as JavaScript code strings within the JSON.
-    *   Configuration for external API calls and ARI actions within FSM definitions.
-*   **Documentation**: Comprehensive setup, API, Web UI, and ARI integration guides.
+    *   FSMs defined in JSON (see `docs/FSM_DEFINITIONS.md`).
+    *   Placeholder support for dynamic data in API/ARI action parameters.
+    *   Optional custom JavaScript methods in FSM definitions for logic beyond declarative actions.
+*   **Documentation**: Comprehensive setup, FSM definition, API, Web UI, and ARI integration guides.
 
 ## Getting Started
 
@@ -43,8 +48,9 @@ This project provides a robust system for creating, managing, and executing Fini
 ## Documentation
 
 *   **[Setup Guide](docs/SETUP.md)**: Installation and environment configuration.
+*   **[FSM Definitions Guide](docs/FSM_DEFINITIONS.md)**: Comprehensive guide to the FSM JSON structure, actions, and placeholders.
+*   **[Web UI Guide](docs/WEB_UI.md)**: How to use the web interface for FSM management and graphical editing.
 *   **[API Reference](docs/API.md)**: Detailed information about available API endpoints.
-*   **[Web UI Guide](docs/WEB_UI.md)**: How to use the web interface for FSM management and editing.
 *   **[ARI Integration Guide](docs/ARI_INTEGRATION.md)**: Details on connecting to Asterisk and building telephony FSMs.
 
 ## Known Issues and Limitations (Current Version)

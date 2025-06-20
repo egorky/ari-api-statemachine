@@ -99,6 +99,41 @@ function createStateMachineInstance(definition, machineId, initialStateData = {}
                 // For now, let's re-throw to make it visible to the FSM's error handling if any
                 throw error;
             }
+        } else if (action.type === 'ari') {
+            if (!action.operation) {
+                console.error("ARI action is missing 'operation' configuration.");
+                return; // Or throw error
+            }
+            if (typeof fsm.doAriAction !== 'function') {
+                console.warn(`ARI action defined for FSM "${fsm.id}", but fsm.doAriAction is not available. ARI might be disabled or not injected properly.`);
+                if (action.onFailure && fsm.can(action.onFailure)) {
+                    Promise.resolve().then(() => fsm[action.onFailure]({ ariError: "ARI service not available" }));
+                }
+                return; // Or throw an error that ARI is not available
+            }
+            try {
+                console.log(`Executing ARI action: ${action.operation} with params:`, action.parameters);
+                // The doAriAction function is expected to handle placeholder replacements within its own logic if needed for parameters.
+                const result = await fsm.doAriAction(action.operation, action.parameters || {}, lifecycle, eventPayload);
+                if (action.storeResultAs) { // Changed from storeResponseAs for clarity with ARI
+                    fsm[action.storeResultAs] = result;
+                    console.log(`Stored ARI action result in fsm.${action.storeResultAs}`);
+                }
+                if (action.onSuccess && fsm.can(action.onSuccess)) {
+                    console.log(`ARI action success, transitioning to ${action.onSuccess}`);
+                    Promise.resolve().then(() => fsm[action.onSuccess]({ ariResult: result }));
+                }
+                return result;
+            } catch (error) {
+                console.error(`ARI action ${action.operation} failed:`, error.message);
+                if (action.onFailure && fsm.can(action.onFailure)) {
+                    console.log(`ARI action failure, transitioning to ${action.onFailure}`);
+                    Promise.resolve().then(() => fsm[action.onFailure]({ ariError: error.message }));
+                }
+                throw error; // Re-throw to make it visible
+            }
+        } else {
+            console.warn(`Unknown action type: ${action.type}. Skipping action.`);
         }
         // Add other action types here if any (e.g., type: "log", type: "emitEvent")
     };

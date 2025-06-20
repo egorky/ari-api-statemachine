@@ -145,7 +145,7 @@ router.get("/fsm/edit/:machineId", isAuthenticated, (req, res) => {
     res.render("edit-fsm", {
         title: "Edit FSM",
         fsmId: machineId,
-        apiTokenForClient: process.env.API_TOKEN || "" // Pass the API token directly
+        apiTokenForClient: process.env.API_TOKEN || "SERVER_TOKEN_MISSING" // Pass the API token directly
         // csrfToken is already available via middleware res.locals.csrfToken
     });
 });
@@ -158,7 +158,7 @@ router.get("/fsm/edit-graphical/:machineId", isAuthenticated, (req, res) => {
         return res.redirect("/dashboard");
     }
     console.log(`[routes/web.js] Rendering edit-fsm-graphical for ${machineId}. API_TOKEN from process.env: '${process.env.API_TOKEN}'`);
-    const tokenForClient = process.env.API_TOKEN || "";
+    const tokenForClient = process.env.API_TOKEN || "SERVER_TOKEN_MISSING";
     console.log(`[routes/web.js] Value being passed as apiTokenForClient: '${tokenForClient}'`);
     res.render("edit-fsm-graphical", { // Render the new view
         title: "Edit FSM Graphically",

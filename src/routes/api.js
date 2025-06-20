@@ -4,8 +4,13 @@ const stateMachineManager = require("../services/stateMachineManager");
 const router = express.Router();
 
 const authenticateToken = (req, res, next) => {
+    if (!process.env.API_TOKEN || process.env.API_TOKEN === "YOUR_STRONG_API_TOKEN_HERE" || process.env.API_TOKEN === "SERVER_TOKEN_MISSING") {
+        console.error("CRITICAL: API_TOKEN is not configured or is using a placeholder value. API will not be secure.");
+        return res.status(500).json({ error: "API authentication is not configured properly on the server." });
+    }
     const authHeader = req.headers["authorization"];
     const token = authHeader && authHeader.split(" ")[1];
+    console.log(`authenticateToken: Received token - '${token}', Expected token - '${process.env.API_TOKEN}'`);
     if (token == null) return res.status(401).json({ error: "Null token" });
     if (token !== process.env.API_TOKEN) return res.status(403).json({ error: "Invalid token" });
     next();
@@ -84,21 +89,14 @@ router.get("/fsm", authenticateToken, (req, res) => {
 });
 
 // New route to get FSM .dot representation
-const visualize = require("javascript-state-machine/lib/visualize"); // Import visualize
-const fs = require("fs"); // Make sure fs is available
-const path = require("path"); // Make sure path is available
+const visualize = require("javascript-state-machine/lib/visualize");
+const fs = require("fs");
+const path = require("path");
+// const StateMachine = require("javascript-state-machine"); // Not strictly needed for viz if we mock config
 
 router.get("/fsm/:machineId/dot", authenticateToken, (req, res) => {
     const { machineId } = req.params;
     try {
-        // Get the raw definition, as visualize works on the config object
-        // We need to ensure the stateMachineManager can provide this or re-load it
-        // For now, assume we can get the definition object.
-        // Let's refine stateMachineManager to expose raw definitions if needed,
-        // or reconstruct a suitable object for visualize.
-
-        // Temporarily, let's re-read the definition file for simplicity here.
-        // A better approach would be to get it from stateMachineManager.loadedMachines
         const fsmDefinitionsDir = path.join(__dirname, "../../fsm_definitions");
         const filePath = path.join(fsmDefinitionsDir, machineId + ".json");
 
@@ -108,29 +106,85 @@ router.get("/fsm/:machineId/dot", authenticateToken, (req, res) => {
         const fileContent = fs.readFileSync(filePath, "utf-8");
         const definition = JSON.parse(fileContent);
 
-        // javascript-state-machine's visualize function expects a StateMachine instance or a factory.
-        // It can also work with a configuration object that looks like what StateMachine constructor takes.
-        // Let's ensure our definition is suitable or adapt it.
-        // The 'visualize' function might not need methods to be actual functions, just the structure.
+        // 1. Gather all unique state names
+        const allStatesSet = new Set();
+        if (definition.initial) {
+            allStatesSet.add(definition.initial);
+        }
 
-        // Create a temporary FSM instance just for visualization, so we don't need to parse methods.
-        // The visualize function primarily cares about init, transitions, states.
-        const vizObject = {
-            initial: definition.initial, // JSM uses 'init' in constructor, but visualize might be flexible
-            init: definition.initial, // Add 'init' as well, as per JSM constructor
-            transitions: definition.transitions || []
-            // We don't need methods, data, etc. for basic visualization of states and transitions
-        };
+        (definition.transitions || []).forEach(t => {
+            if (t.from) {
+                if (Array.isArray(t.from)) {
+                    t.from.forEach(f => { if (f !== '*') allStatesSet.add(f); });
+                } else if (t.from !== '*') {
+                    allStatesSet.add(t.from);
+                }
+            }
+            if (t.to) {
+                if (typeof t.to === 'string' && t.to !== '*') {
+                     allStatesSet.add(t.to);
+                }
+                // If t.to is a function or object (advanced targetting), it won't be added as a simple state name.
+            }
+        });
 
-        // Add states if they are explicitly defined (though visualize can infer them from transitions)
-        if (definition.states) {
-            vizObject.states = definition.states;
+        if (definition.states) { // states can be an array of names or an object
+            if (Array.isArray(definition.states)) {
+                 definition.states.forEach(s => allStatesSet.add(typeof s === 'string' ? s : s.name));
+            } else if (typeof definition.states === 'object' && definition.states !== null) {
+                 Object.keys(definition.states).forEach(sName => allStatesSet.add(sName));
+            }
+        }
+
+        let statesArrayForViz = Array.from(allStatesSet);
+        // Ensure initial state is present if no other states were found from transitions/state defs
+        if (statesArrayForViz.length === 0 && definition.initial) {
+            statesArrayForViz.push(definition.initial);
         }
 
 
-        // Generate the .dot string
-        // The second argument to visualize can be options like { name: machineId, orientation: horizontal }
-        const dotString = visualize(vizObject, { name: machineId });
+        // 2. Prepare a mock config object
+        const mockFsmConfig = {
+            initial: definition.initial,
+            init: {
+                from: 'none',
+                to: definition.initial,
+                name: 'init',
+                active: true
+            },
+            states: statesArrayForViz,
+            transitions: definition.transitions || [],
+            options: { // visualize.js also checks config.options.transitions
+                transitions: definition.transitions || []
+            },
+            defaults: {
+                wildcard: '*'
+            }
+        };
+
+        // Ensure 'none' state is included for the initial transition visualization
+        if (mockFsmConfig.init.active && definition.initial && !mockFsmConfig.states.includes('none')) {
+            mockFsmConfig.states.unshift('none');
+        }
+        // Handle case where FSM might only have an initial state and no explicit transitions/states defined
+        if (mockFsmConfig.states.length === 0 && definition.initial) {
+             mockFsmConfig.states = ['none', definition.initial];
+        } else if (mockFsmConfig.states.length === 1 && definition.initial && mockFsmConfig.states[0] === definition.initial && !mockFsmConfig.states.includes('none')){
+            // Only initial state defined, ensure 'none' is there for the init transition
+            mockFsmConfig.states.unshift('none');
+        }
+
+
+        // 3. Create the wrapper object expected by visualize's dotcfg.fetch
+        const vizObjectForLibrary = {
+            _fsm: {
+                config: mockFsmConfig
+            }
+        };
+
+        // 4. Generate the .dot string
+        // Pass { init: true } to options to ensure the initial transition from 'none' is included.
+        const dotString = visualize(vizObjectForLibrary, { name: machineId, init: true });
 
         res.type("text/vnd.graphviz").send(dotString);
 

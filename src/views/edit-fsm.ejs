@@ -78,7 +78,7 @@
 </div>
 
 <script src="https://d3js.org/d3.v5.min.js"></script>
-<script src="https://unpkg.com/@hpcc-js/wasm@0.3.11/dist/index.min.js"></script>
+<script src="/vendor/@hpcc-js/wasm/dist/index.min.js"></script> <!-- Local path -->
 <script src="https://unpkg.com/d3-graphviz@3.0.5/build/d3-graphviz.js"></script>
 <!-- Or use local copies from node_modules if preferred/possible -->
 
@@ -87,7 +87,20 @@
     const csrfToken = "<%= csrfToken %>";
     // Make API_TOKEN available to client-side script via a global variable.
     // This is a security risk for production.
-    const API_TOKEN = "<%= locals.apiTokenForClient %>";
+    const API_TOKEN = <%- JSON.stringify(locals.apiTokenForClient || "") %>;
+
+    if (API_TOKEN === "SERVER_TOKEN_MISSING") {
+        console.error("API_TOKEN is missing on the server. Cannot fetch FSM data.");
+        alert("Critical: API Token not configured on the server. FSM editor cannot function. Please configure API_TOKEN in the .env file.");
+        // Disable UI elements that make API calls.
+        // For example, disable all form submit buttons and the reload graph button.
+        document.querySelectorAll('.forms-container button[type="submit"]').forEach(btn => btn.disabled = true);
+        const reloadBtn = document.getElementById("reloadGraphButton");
+        if(reloadBtn) reloadBtn.disabled = true;
+        // Consider stopping further script execution if safe.
+        // For now, alerting and disabling is the primary action.
+    }
+
     let currentFsmDefinition = {};
 
     function displayFlashMessage(type, message) {
@@ -128,7 +141,10 @@
     async function renderGraph() {
         try {
             const dotString = await fetchDotString();
-            d3.select("#graph").graphviz({ useWorker: false })
+            d3.select("#graph").graphviz({
+                useWorker: false,
+                wasmFolder: '/vendor/@hpcc-js/wasm/dist/' // Local path
+            })
                 .renderDot(dotString)
                 .on("end", function () {
                     console.log("Graph rendered.");
