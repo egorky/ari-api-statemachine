@@ -990,8 +990,26 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 <style>
     .editor-container { display: flex; gap: 20px; }
-    .graph-container { flex: 1; } /* Visualization part */
-    .forms-container { flex: 2; } /* Editor part */
+    .graph-container {
+        flex: 1;
+        max-height: 600px; /* Or a suitable fixed height */
+        overflow-y: auto;
+        /* Potentially add padding or border if needed for visual separation when scrolling */
+        border: 1px solid #ddd; /* Add a border for the container */
+        padding: 10px; /* Add some padding */
+    }
+    .forms-container {
+        flex: 2;
+        /* The Drawflow editor inside has height: 600px.
+           The forms-container can simply use flex properties or
+           also have a similar height constraint if necessary,
+           but flex properties should manage its size relative to graph-container.
+           Let's ensure it also has a border and padding for consistency.
+        */
+        border: 1px solid #ddd;
+        padding: 10px;
+        /* overflow-y: auto; /* If its content might also exceed 600px */
+    }
     .form-section { background-color: #f9f9f9; padding: 15px; margin-bottom: 15px; border-radius: 4px; border: 1px solid #eee; }
     .form-section h3 { margin-top: 0; }
     /* Minimal Drawflow styling if needed, though library usually handles its own */
