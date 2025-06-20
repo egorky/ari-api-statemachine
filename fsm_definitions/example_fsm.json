@@ -1,6 +1,12 @@
 {
   "id": "example_fsm",
   "initial": "idle",
+  "states": {
+    "idle": {},
+    "running": {},
+    "processing": {},
+    "error": {}
+  },
   "externalApis": {
     "fetchUserData": {
       "url": "https://jsonplaceholder.typicode.com/users/{{payload.userId}}",

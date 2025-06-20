@@ -1,6 +1,13 @@
 {
   "id": "ari_example_fsm",
   "initial": "init",
+  "states": {
+    "init": {},
+    "waitForGreeting": {},
+    "menu": {},
+    "handleOption1": {},
+    "finished": {}
+  },
   "ariActions": { "playWelcome": { "sound": "tt-monkeys" }, "playDigitSound": { "sound": "digits/1" } },
   "transitions": [
     { "name": "ariCallStart", "from": "init", "to": "waitForGreeting" },
